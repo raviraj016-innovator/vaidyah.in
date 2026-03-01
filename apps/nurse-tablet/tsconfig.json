@@ -1,0 +1,40 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "target": "ESNext",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "jsx": "react-native",
+    "lib": ["ES2020"],
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@components/*": ["src/components/*"],
+      "@screens/*": ["src/screens/*"],
+      "@hooks/*": ["src/hooks/*"],
+      "@store/*": ["src/store/*"],
+      "@config/*": ["src/config/*"],
+      "@services/*": ["src/services/*"],
+      "@navigation/*": ["src/navigation/*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "App.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "babel.config.js"
+  ]
+}

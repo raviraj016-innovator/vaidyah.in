@@ -1,0 +1,27 @@
+{
+  "name": "@vaidyah/medical-ontology",
+  "version": "1.0.0",
+  "description": "Medical ontology, ICD-10 codes, symptom database, and triage rules for the Vaidyah healthcare platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@vaidyah/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

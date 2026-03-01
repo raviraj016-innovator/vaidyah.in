@@ -1,0 +1,892 @@
+/**
+ * Common ICD-10 code mappings relevant to primary healthcare in India.
+ * Covers the most frequently encountered conditions at PHCs and CHCs.
+ */
+
+export interface ICD10Entry {
+  code: string;
+  name: string;
+  category: string;
+  commonInIndia: boolean;
+  bodySystem: string;
+  aliases: string[];
+  severityRange: ('mild' | 'moderate' | 'severe')[];
+  requiresReferral: boolean;
+  notifiableDisease: boolean;
+}
+
+/**
+ * ICD-10 code database covering 80+ common conditions seen in Indian primary healthcare.
+ * Organized by body system / category.
+ */
+export const ICD10_CODES: Record<string, ICD10Entry> = {
+  // --- Infectious and Parasitic Diseases ---
+  'A01.0': {
+    code: 'A01.0',
+    name: 'Typhoid fever',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['enteric fever', 'typhoid'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: true,
+  },
+  'A09': {
+    code: 'A09',
+    name: 'Infectious gastroenteritis and colitis, unspecified',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['diarrhea', 'gastroenteritis', 'stomach flu'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'A15.0': {
+    code: 'A15.0',
+    name: 'Tuberculosis of lung',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['TB', 'pulmonary tuberculosis', 'PTB'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: true,
+  },
+  'A90': {
+    code: 'A90',
+    name: 'Dengue fever',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['dengue', 'break-bone fever'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: true,
+  },
+  'A91': {
+    code: 'A91',
+    name: 'Dengue haemorrhagic fever',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['DHF', 'severe dengue'],
+    severityRange: ['severe'],
+    requiresReferral: true,
+    notifiableDisease: true,
+  },
+  'B50.9': {
+    code: 'B50.9',
+    name: 'Plasmodium falciparum malaria, unspecified',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['malaria', 'falciparum malaria'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: true,
+  },
+  'B51.9': {
+    code: 'B51.9',
+    name: 'Plasmodium vivax malaria without complication',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['vivax malaria'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: true,
+  },
+  'B54': {
+    code: 'B54',
+    name: 'Unspecified malaria',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['malaria NOS'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: true,
+  },
+  'A06.0': {
+    code: 'A06.0',
+    name: 'Acute amoebic dysentery',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['amoebic dysentery', 'amoebiasis'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'B77.9': {
+    code: 'B77.9',
+    name: 'Ascariasis, unspecified',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['roundworm', 'ascariasis'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'A05.9': {
+    code: 'A05.9',
+    name: 'Bacterial foodborne intoxication, unspecified',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['food poisoning'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'B01.9': {
+    code: 'B01.9',
+    name: 'Varicella without complication',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'skin',
+    aliases: ['chickenpox'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'B05.9': {
+    code: 'B05.9',
+    name: 'Measles without complication',
+    category: 'Infectious',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['measles', 'rubeola'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: true,
+  },
+
+  // --- Respiratory System ---
+  'J06.9': {
+    code: 'J06.9',
+    name: 'Acute upper respiratory infection, unspecified',
+    category: 'Respiratory',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['URTI', 'common cold', 'upper respiratory infection'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'J18.9': {
+    code: 'J18.9',
+    name: 'Pneumonia, unspecified organism',
+    category: 'Respiratory',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['pneumonia', 'lung infection'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'J45.9': {
+    code: 'J45.9',
+    name: 'Asthma, unspecified',
+    category: 'Respiratory',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['asthma', 'bronchial asthma'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'J44.1': {
+    code: 'J44.1',
+    name: 'Chronic obstructive pulmonary disease with acute exacerbation',
+    category: 'Respiratory',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['COPD exacerbation', 'COPD flare-up'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'J02.9': {
+    code: 'J02.9',
+    name: 'Acute pharyngitis, unspecified',
+    category: 'Respiratory',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['sore throat', 'pharyngitis', 'throat infection'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'J20.9': {
+    code: 'J20.9',
+    name: 'Acute bronchitis, unspecified',
+    category: 'Respiratory',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['bronchitis', 'chest cold'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Cardiovascular ---
+  'I10': {
+    code: 'I10',
+    name: 'Essential (primary) hypertension',
+    category: 'Cardiovascular',
+    commonInIndia: true,
+    bodySystem: 'cardiovascular',
+    aliases: ['hypertension', 'high blood pressure', 'HTN'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'I21.9': {
+    code: 'I21.9',
+    name: 'Acute myocardial infarction, unspecified',
+    category: 'Cardiovascular',
+    commonInIndia: true,
+    bodySystem: 'cardiovascular',
+    aliases: ['heart attack', 'MI', 'myocardial infarction'],
+    severityRange: ['severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'I50.9': {
+    code: 'I50.9',
+    name: 'Heart failure, unspecified',
+    category: 'Cardiovascular',
+    commonInIndia: true,
+    bodySystem: 'cardiovascular',
+    aliases: ['heart failure', 'CHF', 'congestive heart failure'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'I63.9': {
+    code: 'I63.9',
+    name: 'Cerebral infarction, unspecified',
+    category: 'Cardiovascular',
+    commonInIndia: true,
+    bodySystem: 'neurological',
+    aliases: ['stroke', 'cerebral infarction', 'CVA'],
+    severityRange: ['severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'I25.1': {
+    code: 'I25.1',
+    name: 'Atherosclerotic heart disease',
+    category: 'Cardiovascular',
+    commonInIndia: true,
+    bodySystem: 'cardiovascular',
+    aliases: ['ischemic heart disease', 'IHD', 'coronary artery disease'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+
+  // --- Endocrine / Metabolic ---
+  'E11.9': {
+    code: 'E11.9',
+    name: 'Type 2 diabetes mellitus without complications',
+    category: 'Endocrine',
+    commonInIndia: true,
+    bodySystem: 'endocrine',
+    aliases: ['diabetes', 'type 2 diabetes', 'DM2', 'sugar disease'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'E10.9': {
+    code: 'E10.9',
+    name: 'Type 1 diabetes mellitus without complications',
+    category: 'Endocrine',
+    commonInIndia: true,
+    bodySystem: 'endocrine',
+    aliases: ['type 1 diabetes', 'DM1', 'insulin-dependent diabetes'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'E03.9': {
+    code: 'E03.9',
+    name: 'Hypothyroidism, unspecified',
+    category: 'Endocrine',
+    commonInIndia: true,
+    bodySystem: 'endocrine',
+    aliases: ['hypothyroidism', 'underactive thyroid', 'low thyroid'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'E05.9': {
+    code: 'E05.9',
+    name: 'Thyrotoxicosis, unspecified',
+    category: 'Endocrine',
+    commonInIndia: true,
+    bodySystem: 'endocrine',
+    aliases: ['hyperthyroidism', 'overactive thyroid'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'E78.0': {
+    code: 'E78.0',
+    name: 'Pure hypercholesterolaemia',
+    category: 'Endocrine',
+    commonInIndia: true,
+    bodySystem: 'endocrine',
+    aliases: ['high cholesterol', 'hyperlipidemia'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Musculoskeletal ---
+  'M54.5': {
+    code: 'M54.5',
+    name: 'Low back pain',
+    category: 'Musculoskeletal',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['back pain', 'lumbago', 'lower back pain'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'M79.3': {
+    code: 'M79.3',
+    name: 'Panniculitis, unspecified',
+    category: 'Musculoskeletal',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['body pain', 'generalized pain', 'myalgia'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'M15.9': {
+    code: 'M15.9',
+    name: 'Polyosteoarthritis, unspecified',
+    category: 'Musculoskeletal',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['arthritis', 'osteoarthritis', 'joint pain'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'M10.9': {
+    code: 'M10.9',
+    name: 'Gout, unspecified',
+    category: 'Musculoskeletal',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['gout', 'gouty arthritis'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Gastrointestinal ---
+  'K21.0': {
+    code: 'K21.0',
+    name: 'Gastro-oesophageal reflux disease with oesophagitis',
+    category: 'Gastrointestinal',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['GERD', 'acid reflux', 'heartburn'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'K29.7': {
+    code: 'K29.7',
+    name: 'Gastritis, unspecified',
+    category: 'Gastrointestinal',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['gastritis', 'stomach inflammation'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'K25.9': {
+    code: 'K25.9',
+    name: 'Gastric ulcer, unspecified',
+    category: 'Gastrointestinal',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['stomach ulcer', 'peptic ulcer', 'gastric ulcer'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'K59.0': {
+    code: 'K59.0',
+    name: 'Constipation',
+    category: 'Gastrointestinal',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['constipation', 'difficulty passing stool'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Dermatological ---
+  'L30.9': {
+    code: 'L30.9',
+    name: 'Dermatitis, unspecified',
+    category: 'Dermatological',
+    commonInIndia: true,
+    bodySystem: 'skin',
+    aliases: ['skin rash', 'dermatitis', 'eczema'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'B35.9': {
+    code: 'B35.9',
+    name: 'Dermatophytosis, unspecified',
+    category: 'Dermatological',
+    commonInIndia: true,
+    bodySystem: 'skin',
+    aliases: ['fungal infection', 'ringworm', 'tinea'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'L73.9': {
+    code: 'L73.9',
+    name: 'Follicular disorder, unspecified',
+    category: 'Dermatological',
+    commonInIndia: true,
+    bodySystem: 'skin',
+    aliases: ['boils', 'folliculitis'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'B86': {
+    code: 'B86',
+    name: 'Scabies',
+    category: 'Dermatological',
+    commonInIndia: true,
+    bodySystem: 'skin',
+    aliases: ['scabies', 'itch mite'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Genitourinary ---
+  'N39.0': {
+    code: 'N39.0',
+    name: 'Urinary tract infection, site not specified',
+    category: 'Genitourinary',
+    commonInIndia: true,
+    bodySystem: 'genitourinary',
+    aliases: ['UTI', 'urinary infection', 'urine infection'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'N20.0': {
+    code: 'N20.0',
+    name: 'Calculus of kidney',
+    category: 'Genitourinary',
+    commonInIndia: true,
+    bodySystem: 'genitourinary',
+    aliases: ['kidney stone', 'renal calculus', 'nephrolithiasis'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+
+  // --- Ophthalmological ---
+  'H10.9': {
+    code: 'H10.9',
+    name: 'Conjunctivitis, unspecified',
+    category: 'Ophthalmological',
+    commonInIndia: true,
+    bodySystem: 'eye',
+    aliases: ['pink eye', 'conjunctivitis', 'eye infection'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- ENT ---
+  'H66.9': {
+    code: 'H66.9',
+    name: 'Otitis media, unspecified',
+    category: 'ENT',
+    commonInIndia: true,
+    bodySystem: 'ear',
+    aliases: ['ear infection', 'middle ear infection', 'otitis media'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'J01.9': {
+    code: 'J01.9',
+    name: 'Acute sinusitis, unspecified',
+    category: 'ENT',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['sinusitis', 'sinus infection'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Neurological ---
+  'G43.9': {
+    code: 'G43.9',
+    name: 'Migraine, unspecified',
+    category: 'Neurological',
+    commonInIndia: true,
+    bodySystem: 'neurological',
+    aliases: ['migraine', 'migraine headache'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'G40.9': {
+    code: 'G40.9',
+    name: 'Epilepsy, unspecified',
+    category: 'Neurological',
+    commonInIndia: true,
+    bodySystem: 'neurological',
+    aliases: ['epilepsy', 'seizure disorder', 'fits'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'R51': {
+    code: 'R51',
+    name: 'Headache',
+    category: 'Neurological',
+    commonInIndia: true,
+    bodySystem: 'neurological',
+    aliases: ['headache', 'cephalgia'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Obstetric / Maternal ---
+  'O80': {
+    code: 'O80',
+    name: 'Single spontaneous delivery',
+    category: 'Obstetric',
+    commonInIndia: true,
+    bodySystem: 'reproductive',
+    aliases: ['normal delivery', 'vaginal delivery'],
+    severityRange: ['moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'O14.1': {
+    code: 'O14.1',
+    name: 'Severe pre-eclampsia',
+    category: 'Obstetric',
+    commonInIndia: true,
+    bodySystem: 'reproductive',
+    aliases: ['pre-eclampsia', 'toxemia of pregnancy'],
+    severityRange: ['severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'O20.0': {
+    code: 'O20.0',
+    name: 'Threatened abortion',
+    category: 'Obstetric',
+    commonInIndia: true,
+    bodySystem: 'reproductive',
+    aliases: ['threatened miscarriage', 'threatened abortion'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+
+  // --- Nutritional ---
+  'D50.9': {
+    code: 'D50.9',
+    name: 'Iron deficiency anaemia, unspecified',
+    category: 'Nutritional',
+    commonInIndia: true,
+    bodySystem: 'hematologic',
+    aliases: ['anemia', 'iron deficiency', 'low hemoglobin'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'E46': {
+    code: 'E46',
+    name: 'Unspecified protein-calorie malnutrition',
+    category: 'Nutritional',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['malnutrition', 'undernutrition', 'PEM'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'E55.9': {
+    code: 'E55.9',
+    name: 'Vitamin D deficiency, unspecified',
+    category: 'Nutritional',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['vitamin D deficiency', 'rickets in adults'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Mental Health ---
+  'F32.9': {
+    code: 'F32.9',
+    name: 'Depressive episode, unspecified',
+    category: 'Mental Health',
+    commonInIndia: true,
+    bodySystem: 'psychiatric',
+    aliases: ['depression', 'depressive disorder'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'F41.9': {
+    code: 'F41.9',
+    name: 'Anxiety disorder, unspecified',
+    category: 'Mental Health',
+    commonInIndia: true,
+    bodySystem: 'psychiatric',
+    aliases: ['anxiety', 'anxiety disorder', 'GAD'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'F10.2': {
+    code: 'F10.2',
+    name: 'Alcohol dependence syndrome',
+    category: 'Mental Health',
+    commonInIndia: true,
+    bodySystem: 'psychiatric',
+    aliases: ['alcoholism', 'alcohol dependence', 'alcohol addiction'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+
+  // --- Injuries ---
+  'S61.9': {
+    code: 'S61.9',
+    name: 'Open wound of wrist, hand and fingers',
+    category: 'Injury',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['hand wound', 'cut on hand', 'laceration'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'T14.0': {
+    code: 'T14.0',
+    name: 'Superficial injury of unspecified body region',
+    category: 'Injury',
+    commonInIndia: true,
+    bodySystem: 'musculoskeletal',
+    aliases: ['bruise', 'abrasion', 'superficial injury'],
+    severityRange: ['mild'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'T30.0': {
+    code: 'T30.0',
+    name: 'Burn of unspecified body region, unspecified degree',
+    category: 'Injury',
+    commonInIndia: true,
+    bodySystem: 'skin',
+    aliases: ['burn', 'thermal burn'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'T63.0': {
+    code: 'T63.0',
+    name: 'Toxic effect of snake venom',
+    category: 'Injury',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['snake bite', 'snakebite envenomation'],
+    severityRange: ['severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+
+  // --- Pediatric ---
+  'P07.3': {
+    code: 'P07.3',
+    name: 'Other preterm infants',
+    category: 'Pediatric',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['premature baby', 'preterm infant'],
+    severityRange: ['moderate', 'severe'],
+    requiresReferral: true,
+    notifiableDisease: false,
+  },
+  'P59.9': {
+    code: 'P59.9',
+    name: 'Neonatal jaundice, unspecified',
+    category: 'Pediatric',
+    commonInIndia: true,
+    bodySystem: 'hepatic',
+    aliases: ['newborn jaundice', 'neonatal jaundice', 'yellow baby'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+
+  // --- Miscellaneous common presentations ---
+  'R50.9': {
+    code: 'R50.9',
+    name: 'Fever, unspecified',
+    category: 'General',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['fever', 'pyrexia', 'PUO'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'R10.4': {
+    code: 'R10.4',
+    name: 'Other and unspecified abdominal pain',
+    category: 'General',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['abdominal pain', 'stomach ache', 'belly pain'],
+    severityRange: ['mild', 'moderate', 'severe'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'R05': {
+    code: 'R05',
+    name: 'Cough',
+    category: 'General',
+    commonInIndia: true,
+    bodySystem: 'respiratory',
+    aliases: ['cough', 'chronic cough'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'R11': {
+    code: 'R11',
+    name: 'Nausea and vomiting',
+    category: 'General',
+    commonInIndia: true,
+    bodySystem: 'gastrointestinal',
+    aliases: ['vomiting', 'nausea', 'emesis'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'R42': {
+    code: 'R42',
+    name: 'Dizziness and giddiness',
+    category: 'General',
+    commonInIndia: true,
+    bodySystem: 'neurological',
+    aliases: ['dizziness', 'vertigo', 'giddiness'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+  'R53': {
+    code: 'R53',
+    name: 'Malaise and fatigue',
+    category: 'General',
+    commonInIndia: true,
+    bodySystem: 'systemic',
+    aliases: ['fatigue', 'weakness', 'tiredness', 'malaise'],
+    severityRange: ['mild', 'moderate'],
+    requiresReferral: false,
+    notifiableDisease: false,
+  },
+};
+
+/**
+ * Look up an ICD-10 code entry.
+ */
+export function getICD10Entry(code: string): ICD10Entry | undefined {
+  return ICD10_CODES[code];
+}
+
+/**
+ * Search ICD-10 codes by keyword (searches name and aliases).
+ */
+export function searchICD10(query: string): ICD10Entry[] {
+  const lowerQuery = query.toLowerCase();
+  return Object.values(ICD10_CODES).filter(
+    (entry) =>
+      entry.name.toLowerCase().includes(lowerQuery) ||
+      entry.code.toLowerCase().includes(lowerQuery) ||
+      entry.aliases.some((alias) => alias.toLowerCase().includes(lowerQuery))
+  );
+}
+
+/**
+ * Get ICD-10 codes filtered by category.
+ */
+export function getICD10ByCategory(category: string): ICD10Entry[] {
+  return Object.values(ICD10_CODES).filter(
+    (entry) => entry.category.toLowerCase() === category.toLowerCase()
+  );
+}
+
+/**
+ * Get ICD-10 codes filtered by body system.
+ */
+export function getICD10ByBodySystem(bodySystem: string): ICD10Entry[] {
+  return Object.values(ICD10_CODES).filter(
+    (entry) => entry.bodySystem.toLowerCase() === bodySystem.toLowerCase()
+  );
+}
+
+/**
+ * Get all notifiable diseases.
+ */
+export function getNotifiableDiseases(): ICD10Entry[] {
+  return Object.values(ICD10_CODES).filter((entry) => entry.notifiableDisease);
+}
+
+/**
+ * Get all conditions that require referral.
+ */
+export function getConditionsRequiringReferral(): ICD10Entry[] {
+  return Object.values(ICD10_CODES).filter((entry) => entry.requiresReferral);
+}
+
+/**
+ * Get all available categories.
+ */
+export function getCategories(): string[] {
+  return [...new Set(Object.values(ICD10_CODES).map((e) => e.category))];
+}
+
+/**
+ * Get all available body systems.
+ */
+export function getBodySystems(): string[] {
+  return [...new Set(Object.values(ICD10_CODES).map((e) => e.bodySystem))];
+}

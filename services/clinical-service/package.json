@@ -1,0 +1,45 @@
+{
+  "name": "@vaidyah/clinical-service",
+  "version": "1.0.0",
+  "description": "Clinical Intelligence Service for Vaidyah Healthcare Platform - triage, SOAP notes, symptom checking, differential diagnosis, and emergency alerts",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "lint": "eslint src/ --ext .ts",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "pg": "^8.13.1",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^9.14.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

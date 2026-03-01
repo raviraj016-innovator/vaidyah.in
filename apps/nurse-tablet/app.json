@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "Vaidyah Nurse",
+    "slug": "vaidyah-nurse-tablet",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0066CC"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "requireFullScreen": false,
+      "bundleIdentifier": "com.vaidyah.nurse",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Vaidyah Nurse needs microphone access to record patient consultations for AI-assisted transcription and analysis.",
+        "NSCameraUsageDescription": "Vaidyah Nurse needs camera access to scan patient IDs and documents.",
+        "UIRequiresFullScreen": false,
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0066CC"
+      },
+      "package": "com.vaidyah.nurse",
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Vaidyah Nurse to access your microphone for patient consultation recording."
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      [
+        "react-native-reanimated/plugin"
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "vaidyah-nurse-tablet"
+      }
+    }
+  }
+}

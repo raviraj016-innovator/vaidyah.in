@@ -1,0 +1,154 @@
+version: '3.8'
+
+services:
+  # ============ DATABASES ============
+  postgres:
+    image: postgres:16-alpine
+    container_name: vaidyah-postgres
+    environment:
+      POSTGRES_DB: vaidyah
+      POSTGRES_USER: vaidyah
+      POSTGRES_PASSWORD: vaidyah_dev_pwd
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaidyah"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: vaidyah-dynamodb
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb"
+
+  opensearch:
+    image: opensearchproject/opensearch:2.12.0
+    container_name: vaidyah-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: vaidyah-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # ============ BACKEND SERVICES ============
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: vaidyah-api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://vaidyah:vaidyah_dev_pwd@postgres:5432/vaidyah
+      - REDIS_URL=redis://redis:6379
+      - VOICE_SERVICE_URL=http://voice-service:8001
+      - NLU_SERVICE_URL=http://nlu-service:8002
+      - CLINICAL_SERVICE_URL=http://clinical-service:3001
+      - TRIAL_SERVICE_URL=http://trial-service:8003
+      - INTEGRATION_SERVICE_URL=http://integration-service:3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./services/api-gateway/src:/app/src
+
+  voice-service:
+    build:
+      context: ./services/voice-service
+      dockerfile: Dockerfile
+    container_name: vaidyah-voice-service
+    ports:
+      - "8001:8001"
+    environment:
+      - AWS_REGION=ap-south-1
+      - S3_BUCKET_VOICE=vaidyah-voice-recordings
+    volumes:
+      - ./services/voice-service/app:/app/app
+
+  nlu-service:
+    build:
+      context: ./services/nlu-service
+      dockerfile: Dockerfile
+    container_name: vaidyah-nlu-service
+    ports:
+      - "8002:8002"
+    environment:
+      - AWS_REGION=ap-south-1
+      - BEDROCK_MODEL_ID=anthropic.claude-3-5-sonnet-20241022-v2:0
+    volumes:
+      - ./services/nlu-service/app:/app/app
+
+  clinical-service:
+    build:
+      context: ./services/clinical-service
+      dockerfile: Dockerfile
+    container_name: vaidyah-clinical-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://vaidyah:vaidyah_dev_pwd@postgres:5432/vaidyah
+      - NLU_SERVICE_URL=http://nlu-service:8002
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/clinical-service/src:/app/src
+
+  trial-service:
+    build:
+      context: ./services/trial-service
+      dockerfile: Dockerfile
+    container_name: vaidyah-trial-service
+    ports:
+      - "8003:8003"
+    environment:
+      - AWS_REGION=ap-south-1
+      - OPENSEARCH_ENDPOINT=http://opensearch:9200
+      - DATABASE_URL=postgresql://vaidyah:vaidyah_dev_pwd@postgres:5432/vaidyah
+    depends_on:
+      - opensearch
+      - postgres
+    volumes:
+      - ./services/trial-service/app:/app/app
+
+  integration-service:
+    build:
+      context: ./services/integration-service
+      dockerfile: Dockerfile
+    container_name: vaidyah-integration-service
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://vaidyah:vaidyah_dev_pwd@postgres:5432/vaidyah
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./services/integration-service/src:/app/src
+
+volumes:
+  postgres_data:
+  opensearch_data:
+  redis_data:
