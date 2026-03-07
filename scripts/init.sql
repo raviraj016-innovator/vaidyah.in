@@ -159,19 +159,7 @@ CREATE TABLE clinical_trials (
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE trial_matches (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    patient_id      UUID NOT NULL REFERENCES patients(id),
-    trial_id        UUID NOT NULL REFERENCES clinical_trials(id),
-    match_score     DECIMAL(3, 2) CHECK (match_score >= 0 AND match_score <= 1),
-    match_reasons   JSONB DEFAULT '[]',
-    eligible        BOOLEAN,
-    notified        BOOLEAN DEFAULT false,
-    notified_at     TIMESTAMPTZ,
-    dismissed       BOOLEAN DEFAULT false,
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(patient_id, trial_id)
-);
+-- trial_matches is managed by the trial-service (see services/trial-service/app/services/db.py)
 
 -- ============ NOTIFICATIONS & ALERTS ============
 
@@ -214,8 +202,7 @@ CREATE INDEX idx_consultations_created ON consultations(created_at DESC);
 CREATE INDEX idx_clinical_trials_nct ON clinical_trials(nct_id);
 CREATE INDEX idx_clinical_trials_conditions ON clinical_trials USING GIN(conditions);
 CREATE INDEX idx_clinical_trials_status ON clinical_trials(status);
-CREATE INDEX idx_trial_matches_patient ON trial_matches(patient_id);
-CREATE INDEX idx_trial_matches_score ON trial_matches(match_score DESC);
+-- trial_matches indexes managed by trial-service
 CREATE INDEX idx_alerts_patient ON alerts(patient_id);
 CREATE INDEX idx_alerts_type ON alerts(alert_type);
 CREATE INDEX idx_audit_log_user ON audit_log(user_id);

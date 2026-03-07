@@ -20,9 +20,12 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { TriageBadge } from '@/components/data-display/triage-badge';
 import { ConsultationDrawer } from '@/components/data-display/consultation-drawer';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -498,8 +501,14 @@ export default function ConsultationsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedConsultation, setSelectedConsultation] = useState<ConsultationRecord | null>(null);
 
+  const { data: consultations = MOCK_CONSULTATIONS } = useQuery({
+    queryKey: ['admin', 'consultations'],
+    queryFn: fetchWithFallback<ConsultationRecord[]>(endpoints.consultations.list, MOCK_CONSULTATIONS),
+    staleTime: 30_000,
+  });
+
   const filteredConsultations = useMemo(() => {
-    return MOCK_CONSULTATIONS.filter((c) => {
+    return consultations.filter((c) => {
       const matchCenter = !centerFilter || c.centerId === centerFilter;
       const matchTriage = !triageFilter || c.triageCategory === triageFilter;
       const matchStatus = !statusFilter || c.status === statusFilter;

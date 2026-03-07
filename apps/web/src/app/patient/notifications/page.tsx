@@ -18,9 +18,12 @@ import {
   BellOutlined,
   CheckOutlined,
 } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useTrialStore, Notification } from '@/stores/trial-store';
 import { PageHeader } from '@/components/ui/page-header';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Mock notifications
@@ -150,13 +153,20 @@ export default function NotificationsPage() {
 
   const setNotifications = useTrialStore((s) => s.setNotifications);
 
-  // Load mock notifications on mount (single atomic set)
+  const { data: fetchedNotifications } = useQuery({
+    queryKey: ['patient', 'notifications'],
+    queryFn: fetchWithFallback<Notification[]>(endpoints.notifications.list, MOCK_NOTIFICATIONS),
+    staleTime: 30_000,
+  });
+
+  // Sync fetched data into store
   useEffect(() => {
-    if (!initialized && notifications.length === 0) {
-      setNotifications(MOCK_NOTIFICATIONS);
+    if (!initialized) {
+      const data = fetchedNotifications ?? MOCK_NOTIFICATIONS;
+      setNotifications(data);
       setInitialized(true);
     }
-  }, [initialized, notifications.length, setNotifications]);
+  }, [initialized, fetchedNotifications, setNotifications]);
 
   const displayNotifications = notifications;
 

@@ -29,8 +29,12 @@ import {
   WifiOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { RoleGate } from '@/lib/auth/role-gate';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
+import api from '@/lib/api/client';
 
 const { Text } = Typography;
 
@@ -223,7 +227,22 @@ const CONNECTIVITY_OPTIONS = [
 
 export default function CentersPage() {
   const { message: messageApi } = App.useApp();
+  const queryClient = useQueryClient();
+
+  const { data: fetchedCenters } = useQuery({
+    queryKey: ['admin', 'centers'],
+    queryFn: fetchWithFallback<HealthCenter[]>(endpoints.centers.list, INITIAL_CENTERS),
+    staleTime: 30_000,
+  });
+
   const [centers, setCenters] = useState<HealthCenter[]>(INITIAL_CENTERS);
+
+  // Sync fetched data into local state (allows optimistic mutations)
+  React.useEffect(() => {
+    if (fetchedCenters && fetchedCenters !== INITIAL_CENTERS) {
+      setCenters(fetchedCenters);
+    }
+  }, [fetchedCenters]);
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -261,26 +280,25 @@ export default function CentersPage() {
   };
 
   // Delete center
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     setCenters((prev) => prev.filter((c) => c.id !== id));
     messageApi.success('Center deleted successfully');
+    try { await api.delete(endpoints.centers.delete(id)); } catch { /* demo mode */ }
+    queryClient.invalidateQueries({ queryKey: ['admin', 'centers'] });
   };
 
   // Save (create or update)
   const handleSave = () => {
-    form.validateFields().then((values) => {
+    form.validateFields().then(async (values) => {
       if (editingCenter) {
-        // Update
         setCenters((prev) =>
           prev.map((c) =>
-            c.id === editingCenter.id
-              ? { ...c, ...values }
-              : c,
+            c.id === editingCenter.id ? { ...c, ...values } : c,
           ),
         );
         messageApi.success('Center updated successfully');
+        try { await api.put(endpoints.centers.update(editingCenter.id), values); } catch { /* demo mode */ }
       } else {
-        // Create
         const newCenter: HealthCenter = {
           ...values,
           id: `hc-${Date.now()}`,
@@ -292,7 +310,9 @@ export default function CentersPage() {
         };
         setCenters((prev) => [newCenter, ...prev]);
         messageApi.success('Center created successfully');
+        try { await api.post(endpoints.centers.create, values); } catch { /* demo mode */ }
       }
+      queryClient.invalidateQueries({ queryKey: ['admin', 'centers'] });
       setModalOpen(false);
       form.resetFields();
     }).catch(() => {

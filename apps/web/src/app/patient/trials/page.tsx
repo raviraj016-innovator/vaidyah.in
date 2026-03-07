@@ -15,10 +15,13 @@ import {
   Card,
 } from 'antd';
 import { SearchOutlined, FilterOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useTrialStore, ClinicalTrial } from '@/stores/trial-store';
 import { TrialCard } from '@/components/data-display/trial-card';
 import { PageHeader } from '@/components/ui/page-header';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Mock trial search results
@@ -154,14 +157,17 @@ export default function TrialsSearchPage() {
   const [locationFilter, setLocationFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Load mock data on mount
-  useEffect(() => {
-    if (searchResults.length === 0) {
-      setSearchResults(MOCK_TRIALS);
-    }
-  }, [searchResults.length, setSearchResults]);
+  const { data: fetchedTrials } = useQuery({
+    queryKey: ['patient', 'trials', 'list'],
+    queryFn: fetchWithFallback<ClinicalTrial[]>(endpoints.trials.list, MOCK_TRIALS),
+    staleTime: 60_000,
+  });
 
-  const allTrials = searchResults;
+  useEffect(() => {
+    if (fetchedTrials) setSearchResults(fetchedTrials);
+  }, [fetchedTrials, setSearchResults]);
+
+  const allTrials = searchResults.length > 0 ? searchResults : (fetchedTrials ?? MOCK_TRIALS);
 
   // Filtered results
   const filtered = useMemo(() => {

@@ -28,8 +28,12 @@ import {
   UserOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { RoleGate } from '@/lib/auth/role-gate';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
+import api from '@/lib/api/client';
 
 const { Text } = Typography;
 
@@ -235,7 +239,21 @@ function formatRole(role: string): string {
 
 export default function UsersPage() {
   const { message: messageApi } = App.useApp();
+  const queryClient = useQueryClient();
+
+  const { data: fetchedUsers } = useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: fetchWithFallback<UserRecord[]>(endpoints.users.list, INITIAL_USERS),
+    staleTime: 30_000,
+  });
+
   const [users, setUsers] = useState<UserRecord[]>(INITIAL_USERS);
+
+  React.useEffect(() => {
+    if (fetchedUsers && fetchedUsers !== INITIAL_USERS) {
+      setUsers(fetchedUsers);
+    }
+  }, [fetchedUsers]);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [centerFilter, setCenterFilter] = useState('');
@@ -269,32 +287,30 @@ export default function UsersPage() {
     setModalOpen(true);
   };
 
-  const handleDeactivate = (id: string) => {
+  const handleDeactivate = async (id: string) => {
+    const user = users.find((u) => u.id === id);
+    const newStatus = user?.status === 'active' ? 'inactive' : 'active';
     setUsers((prev) =>
-      prev.map((u) =>
-        u.id === id
-          ? { ...u, status: u.status === 'active' ? 'inactive' : 'active' }
-          : u,
-      ),
+      prev.map((u) => (u.id === id ? { ...u, status: newStatus } : u)),
     );
     messageApi.success('User status updated');
+    try { await api.patch(endpoints.users.update(id), { status: newStatus }); } catch { /* demo mode */ }
+    queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
   };
 
   const handleSave = () => {
-    form.validateFields().then((values) => {
-      // Find center name from centerId
+    form.validateFields().then(async (values) => {
       const centerOption = CENTER_OPTIONS.find((c) => c.value === values.centerId);
       const centerName = centerOption?.label ?? values.centerId;
 
       if (editingUser) {
         setUsers((prev) =>
           prev.map((u) =>
-            u.id === editingUser.id
-              ? { ...u, ...values, center: centerName }
-              : u,
+            u.id === editingUser.id ? { ...u, ...values, center: centerName } : u,
           ),
         );
         messageApi.success('User updated successfully');
+        try { await api.put(endpoints.users.update(editingUser.id), values); } catch { /* demo mode */ }
       } else {
         const newUser: UserRecord = {
           ...values,
@@ -305,7 +321,9 @@ export default function UsersPage() {
         };
         setUsers((prev) => [newUser, ...prev]);
         messageApi.success('User created successfully');
+        try { await api.post(endpoints.users.create, values); } catch { /* demo mode */ }
       }
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       setModalOpen(false);
       form.resetFields();
     }).catch(() => {

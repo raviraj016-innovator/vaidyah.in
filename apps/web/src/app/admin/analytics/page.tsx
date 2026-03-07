@@ -15,6 +15,8 @@ import { PageHeader } from '@/components/ui/page-header';
 import { LineChart } from '@/components/charts/line-chart';
 import { BarChart } from '@/components/charts/bar-chart';
 import { PieChart } from '@/components/charts/pie-chart';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 const { Text } = Typography;
 
@@ -129,27 +131,42 @@ export default function AnalyticsPage() {
 
   const { data: kpis, isLoading: kpiLoading } = useQuery({
     queryKey: ['admin', 'analytics', 'kpis', period],
-    queryFn: async () => generateKpis(period),
+    queryFn: fetchWithFallback(
+      `${endpoints.analytics.diseasePrevalence}?period=${period}&type=kpis`,
+      generateKpis(period),
+    ),
   });
 
   const { data: diseaseData } = useQuery({
     queryKey: ['admin', 'analytics', 'diseases', period],
-    queryFn: async () => generateDiseasePrevalence(),
+    queryFn: fetchWithFallback(
+      `${endpoints.analytics.diseasePrevalence}?period=${period}`,
+      generateDiseasePrevalence(),
+    ),
   });
 
   const { data: demographicsData } = useQuery({
     queryKey: ['admin', 'analytics', 'demographics', period],
-    queryFn: async () => generateDemographics(),
+    queryFn: fetchWithFallback(
+      `${endpoints.analytics.demographics}?period=${period}`,
+      generateDemographics(),
+    ),
   });
 
   const { data: accuracyData } = useQuery({
     queryKey: ['admin', 'analytics', 'accuracy', period],
-    queryFn: async () => generateAccuracyTrend(period),
+    queryFn: fetchWithFallback(
+      `${endpoints.analytics.aiAccuracy}?period=${period}`,
+      generateAccuracyTrend(period),
+    ),
   });
 
   const { data: waitTimesData } = useQuery({
     queryKey: ['admin', 'analytics', 'waitTimes', period],
-    queryFn: async () => generateWaitTimesByCenter(),
+    queryFn: fetchWithFallback(
+      `${endpoints.analytics.waitTimes}?period=${period}`,
+      generateWaitTimesByCenter(),
+    ),
   });
 
   const performanceColumns: ColumnsType<NursePerformance> = [

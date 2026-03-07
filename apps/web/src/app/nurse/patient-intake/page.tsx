@@ -26,9 +26,13 @@ import {
   IdcardOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, PatientInfo } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
+import api from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Mock recent patients
@@ -134,9 +138,16 @@ export default function PatientIntakePage() {
   const [lookupResult, setLookupResult] = useState<PatientInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // ABDM lookup mock
+  // Fetch recent patients from API with mock fallback
+  const { data: recentPatients = MOCK_RECENT_PATIENTS } = useQuery({
+    queryKey: ['nurse', 'patients', 'recent'],
+    queryFn: fetchWithFallback(endpoints.patients.recent, MOCK_RECENT_PATIENTS),
+    staleTime: 60_000,
+  });
+
+  // ABDM lookup — tries real API first, falls back to mock
   const handleAbdmLookup = useCallback(
-    (value: string) => {
+    async (value: string) => {
       if (!value.trim()) {
         message.warning(
           language === 'hi'
@@ -146,23 +157,26 @@ export default function PatientIntakePage() {
         return;
       }
       setLookupLoading(true);
-      // Simulate API call
-      setTimeout(() => {
+      try {
+        const { data: found } = await api.get(endpoints.patients.abdmLookup, { params: { abdmId: value } });
+        setLookupResult(found);
+        form.setFieldsValue({
+          name: found.name, age: found.age, gender: found.gender,
+          phone: found.phone, bloodGroup: found.bloodGroup,
+          allergies: found.allergies, chronicConditions: found.chronicConditions,
+        });
+        message.success(language === 'hi' ? 'रोगी मिला!' : 'Patient found!');
+      } catch {
+        // Demo-mode fallback
         if (value === '12-3456-7890-1234') {
           const found = MOCK_RECENT_PATIENTS[3];
           setLookupResult(found);
           form.setFieldsValue({
-            name: found.name,
-            age: found.age,
-            gender: found.gender,
-            phone: found.phone,
-            bloodGroup: found.bloodGroup,
-            allergies: found.allergies,
-            chronicConditions: found.chronicConditions,
+            name: found.name, age: found.age, gender: found.gender,
+            phone: found.phone, bloodGroup: found.bloodGroup,
+            allergies: found.allergies, chronicConditions: found.chronicConditions,
           });
-          message.success(
-            language === 'hi' ? 'रोगी मिला!' : 'Patient found!',
-          );
+          message.success(language === 'hi' ? 'रोगी मिला!' : 'Patient found!');
         } else {
           setLookupResult(null);
           message.info(
@@ -171,8 +185,9 @@ export default function PatientIntakePage() {
               : 'No record found. Please enter details manually.',
           );
         }
+      } finally {
         setLookupLoading(false);
-      }, 1200);
+      }
     },
     [form, language, message],
   );
@@ -200,7 +215,7 @@ export default function PatientIntakePage() {
 
   // Submit form
   const handleSubmit = useCallback(
-    (values: Record<string, unknown>) => {
+    async (values: Record<string, unknown>) => {
       setSubmitting(true);
 
       const patient: PatientInfo = {
@@ -214,8 +229,14 @@ export default function PatientIntakePage() {
         chronicConditions: values.chronicConditions as string[] | undefined,
       };
 
-      // Start the session — returns the generated sessionId directly
+      // Start local session
       const newSessionId = startSession(patient);
+
+      // Try to create patient + session on backend
+      try {
+        await api.post(endpoints.patients.create, patient);
+        await api.post(endpoints.sessions.start, { patientId: patient.id, sessionId: newSessionId });
+      } catch { /* demo mode — local session store handles state */ }
 
       setSubmitting(false);
       router.push(`/nurse/vitals-entry/${newSessionId}`);
@@ -463,7 +484,7 @@ export default function PatientIntakePage() {
             }
           >
             <List
-              dataSource={MOCK_RECENT_PATIENTS}
+              dataSource={recentPatients}
               renderItem={(patient) => (
                 <List.Item
                   style={{ cursor: 'pointer', padding: '12px 0' }}

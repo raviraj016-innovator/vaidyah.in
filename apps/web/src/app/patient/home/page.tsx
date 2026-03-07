@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Typography,
@@ -11,10 +11,13 @@ import {
   Card,
 } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { useAuthStore, PatientUser } from '@/stores/auth-store';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useTrialStore, TrialMatch } from '@/stores/trial-store';
 import { TrialCard } from '@/components/data-display/trial-card';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Mock trial matches
@@ -144,33 +147,24 @@ export default function PatientHomePage() {
   const matches = useTrialStore((s) => s.matches);
   const setMatches = useTrialStore((s) => s.setMatches);
 
-  const [loading, setLoading] = useState(false);
-  const [initialized, setInitialized] = useState(false);
+  const patientId = user?.id ?? '';
+  const { data: fetchedMatches, isLoading: loading, refetch } = useQuery({
+    queryKey: ['patient', 'matches', patientId],
+    queryFn: fetchWithFallback<TrialMatch[]>(
+      patientId ? endpoints.trials.patientMatches(patientId) : endpoints.trials.matches,
+      MOCK_MATCHES,
+    ),
+    staleTime: 60_000,
+    enabled: !!user,
+  });
 
-  // Load mock matches on mount
   useEffect(() => {
-    if (!initialized) {
-      setMatches(MOCK_MATCHES);
-      setInitialized(true);
-    }
-  }, [initialized, setMatches]);
+    if (fetchedMatches) setMatches(fetchedMatches);
+  }, [fetchedMatches, setMatches]);
 
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const handleRefresh = useCallback(() => {
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    setLoading(true);
-    refreshTimerRef.current = setTimeout(() => {
-      setMatches(MOCK_MATCHES);
-      setLoading(false);
-    }, 1000);
-  }, [setMatches]);
-
-  // Cleanup refresh timer on unmount
-  useEffect(() => {
-    return () => {
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    };
-  }, []);
+    refetch();
+  }, [refetch]);
 
   const displayMatches = matches;
   const userName = user?.name ?? 'Patient';

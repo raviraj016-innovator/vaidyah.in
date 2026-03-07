@@ -26,6 +26,8 @@ import { useQuery } from '@tanstack/react-query';
 import { StatsCard } from '@/components/ui/stats-card';
 import { PageHeader } from '@/components/ui/page-header';
 import { LineChart } from '@/components/charts/line-chart';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 const { Text } = Typography;
 
@@ -203,17 +205,32 @@ function generateResponseTimeTrend() {
 // ---------------------------------------------------------------------------
 
 export default function SystemHealthPage() {
-  const healthyCount = mockServices.filter((s) => s.status === 'healthy').length;
-  const degradedCount = mockServices.filter((s) => s.status === 'degraded').length;
-  const downCount = mockServices.filter((s) => s.status === 'down').length;
+  const { data: services } = useQuery({
+    queryKey: ['admin', 'system', 'services'],
+    queryFn: fetchWithFallback(endpoints.system.services, mockServices),
+    staleTime: 30_000,
+  });
+
+  const { data: alerts } = useQuery({
+    queryKey: ['admin', 'system', 'alerts'],
+    queryFn: fetchWithFallback(endpoints.system.alerts, mockAlerts),
+    staleTime: 30_000,
+  });
+
+  const activeServices = services ?? mockServices;
+  const activeAlerts = alerts ?? mockAlerts;
+
+  const healthyCount = activeServices.filter((s) => s.status === 'healthy').length;
+  const degradedCount = activeServices.filter((s) => s.status === 'degraded').length;
+  const downCount = activeServices.filter((s) => s.status === 'down').length;
   const avgResponseTime = Math.round(
-    mockServices.filter((s) => s.responseTime > 0).reduce((sum, s) => sum + s.responseTime, 0) /
-      mockServices.filter((s) => s.responseTime > 0).length,
+    activeServices.filter((s) => s.responseTime > 0).reduce((sum, s) => sum + s.responseTime, 0) /
+      (activeServices.filter((s) => s.responseTime > 0).length || 1),
   );
 
   const { data: responseTrendData } = useQuery({
     queryKey: ['admin', 'system', 'responseTrend'],
-    queryFn: async () => generateResponseTimeTrend(),
+    queryFn: fetchWithFallback(endpoints.system.responseTimes, generateResponseTimeTrend()),
     staleTime: 60_000,
   });
 
@@ -341,7 +358,7 @@ export default function SystemHealthPage() {
           <StatsCard
             title="Healthy Services"
             value={healthyCount}
-            suffix={`/ ${mockServices.length}`}
+            suffix={`/ ${activeServices.length}`}
             icon={<CheckCircleOutlined />}
             loading={false}
             iconColor="#16a34a"
@@ -362,7 +379,7 @@ export default function SystemHealthPage() {
         <Col xs={24} sm={12} lg={6}>
           <StatsCard
             title="Active Alerts"
-            value={mockAlerts.length}
+            value={activeAlerts.length}
             icon={<AlertOutlined />}
             loading={false}
             iconColor="#d97706"
@@ -389,7 +406,7 @@ export default function SystemHealthPage() {
       >
         <Table
           rowKey="key"
-          dataSource={mockServices}
+          dataSource={activeServices}
           columns={columns}
           pagination={false}
           size="middle"
@@ -420,7 +437,7 @@ export default function SystemHealthPage() {
         <Col xs={24} lg={10}>
           <Card title="Error Rates by Service">
             <Space direction="vertical" style={{ width: '100%' }} size={16}>
-              {mockServices.map((service) => {
+              {activeServices.map((service) => {
                 const color =
                   service.errorRate <= 0.1
                     ? '#16a34a'
@@ -459,7 +476,7 @@ export default function SystemHealthPage() {
         <Col xs={24} lg={14}>
           <Card title="Active Alerts">
             <Space direction="vertical" style={{ width: '100%' }} size={12}>
-              {mockAlerts.map((alert) => (
+              {activeAlerts.map((alert) => (
                 <Alert
                   key={alert.id}
                   type={alertTypeMap[alert.severity]}
@@ -476,7 +493,7 @@ export default function SystemHealthPage() {
                   style={{ borderRadius: 8 }}
                 />
               ))}
-              {mockAlerts.length === 0 && (
+              {activeAlerts.length === 0 && (
                 <Alert
                   type="success"
                   showIcon

@@ -1,6 +1,9 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 import Link from 'next/link';
 import {
   Row,
@@ -39,12 +42,12 @@ export default function NurseDashboardPage() {
   const userName = user?.name ?? 'Nurse';
   const centerName = user?.centerName ?? 'Health Center';
 
-  // Mock stats
-  const stats = {
-    patientsSeen: 12,
-    pendingTriage: 3,
-    emergencies: 1,
-  };
+  const mockStats = { patientsSeen: 12, pendingTriage: 3, emergencies: 1 };
+  const { data: stats = mockStats } = useQuery({
+    queryKey: ['nurse', 'dashboard', 'stats'],
+    queryFn: fetchWithFallback(endpoints.nurseDashboard.stats, mockStats),
+    staleTime: 30_000,
+  });
 
   return (
     <div>

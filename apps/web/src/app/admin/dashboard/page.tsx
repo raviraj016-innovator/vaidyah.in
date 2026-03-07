@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Row, Col, Card, List, Badge, Typography, Tag, Space } from 'antd';
 import {
   TeamOutlined,
@@ -17,6 +17,8 @@ import { PageHeader } from '@/components/ui/page-header';
 import { LineChart } from '@/components/charts/line-chart';
 import { PieChart } from '@/components/charts/pie-chart';
 import { BarChart } from '@/components/charts/bar-chart';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 const { Text } = Typography;
 
@@ -101,28 +103,25 @@ const connectivityIcon: Record<string, React.ReactNode> = {
 export default function AdminDashboardPage() {
   const { data: kpis, isLoading: kpiLoading } = useQuery({
     queryKey: ['admin', 'dashboard', 'kpis'],
-    queryFn: async () => mockKpis,
+    queryFn: fetchWithFallback(endpoints.dashboard.kpis, mockKpis),
     staleTime: 60_000,
   });
 
-  const [clientTrendData, setClientTrendData] = useState<
-    { date: string; count: number; type: string }[]
-  >([]);
-  useEffect(() => {
-    setClientTrendData(generateConsultationTrend());
-  }, []);
-
-  const trendData = clientTrendData.length > 0 ? clientTrendData : undefined;
+  const { data: trendData } = useQuery({
+    queryKey: ['admin', 'dashboard', 'consultationTrend'],
+    queryFn: fetchWithFallback(endpoints.dashboard.consultationsTrend, generateConsultationTrend()),
+    staleTime: 60_000,
+  });
 
   const { data: triageData } = useQuery({
     queryKey: ['admin', 'dashboard', 'triageDistribution'],
-    queryFn: async () => mockTriageDistribution,
+    queryFn: fetchWithFallback(endpoints.dashboard.triageSummary, mockTriageDistribution),
     staleTime: 60_000,
   });
 
   const { data: conditionsData } = useQuery({
     queryKey: ['admin', 'dashboard', 'topConditions'],
-    queryFn: async () => mockTopConditions,
+    queryFn: fetchWithFallback(endpoints.dashboard.topConditions, mockTopConditions),
     staleTime: 60_000,
   });
 

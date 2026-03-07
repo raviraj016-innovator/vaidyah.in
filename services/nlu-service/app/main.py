@@ -31,7 +31,7 @@ structlog.configure(
         structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.make_filtering_bound_logger(
-        structlog.get_level_from_name(get_settings().log_level)
+        getattr(structlog, 'get_level_from_name', lambda n: {"debug": 10, "info": 20, "warning": 30, "error": 40, "critical": 50}.get(n.lower(), 20))(get_settings().log_level)
     ),
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),

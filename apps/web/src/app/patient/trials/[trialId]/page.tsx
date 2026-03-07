@@ -25,9 +25,12 @@ import {
   InfoCircleOutlined,
   BankOutlined,
 } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { PageHeader } from '@/components/ui/page-header';
 import type { ClinicalTrial } from '@/stores/trial-store';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Mock trial detail data
@@ -160,9 +163,13 @@ export default function TrialDetailPage() {
 
   const [interestSent, setInterestSent] = useState(false);
 
-  const trial = useMemo(() => {
-    return MOCK_TRIAL_MAP[trialId] ?? { ...DEFAULT_TRIAL, id: trialId };
-  }, [trialId]);
+  const mockTrial = useMemo(() => MOCK_TRIAL_MAP[trialId] ?? { ...DEFAULT_TRIAL, id: trialId }, [trialId]);
+  const { data: trial = mockTrial } = useQuery({
+    queryKey: ['patient', 'trial', trialId],
+    queryFn: fetchWithFallback<ClinicalTrial>(endpoints.trials.detail(trialId), mockTrial),
+    staleTime: 60_000,
+    enabled: !!trialId,
+  });
 
   const handleExpressInterest = () => {
     modal.confirm({
