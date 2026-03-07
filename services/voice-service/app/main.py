@@ -116,6 +116,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # FastAPI Application
 # ---------------------------------------------------------------------------
 
+settings = get_settings()
+_is_prod = settings.is_production
+
 app = FastAPI(
     title="Vaidyah Voice Processing Service",
     description=(
@@ -124,18 +127,21 @@ app = FastAPI(
     ),
     version=__version__,
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
 )
 
 # -- CORS ---
-settings = get_settings()
+_filtered_origins = [o for o in settings.cors_origins if "*" not in o]
+if not _filtered_origins and not _is_prod:
+    _filtered_origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=_filtered_origins,
+    allow_origin_regex=r"https://(app|admin|api|nurse)\.vaidyah\.health",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 
 # -- JWT Auth Middleware ---
@@ -173,11 +179,14 @@ app.include_router(
 
 @app.get("/", include_in_schema=False)
 async def root() -> dict:
-    return {
+    result: dict = {
         "service": __service_name__,
-        "version": __version__,
-        "docs": "/docs",
+        "status": "running",
     }
+    if not _is_prod:
+        result["version"] = __version__
+        result["docs"] = "/docs"
+    return result
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
@@ -193,7 +202,8 @@ async def health_check() -> HealthResponse:
         else:
             checks["aws_polly"] = "not_configured"
     except Exception as exc:
-        checks["aws_polly"] = f"unhealthy: {exc}"
+        logger.error("health_check.polly_failed", error=str(exc))
+        checks["aws_polly"] = "unhealthy"
 
     try:
         if "s3_client" in _shared_state:
@@ -204,7 +214,8 @@ async def health_check() -> HealthResponse:
         else:
             checks["aws_s3"] = "not_configured"
     except Exception as exc:
-        checks["aws_s3"] = f"unhealthy: {exc}"
+        logger.error("health_check.s3_failed", error=str(exc))
+        checks["aws_s3"] = "unhealthy"
 
     overall = "healthy" if all(
         v in ("healthy", "not_configured") for v in checks.values()
@@ -226,10 +237,9 @@ async def health_check() -> HealthResponse:
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.error(
         "unhandled_exception",
-        path=str(request.url),
+        path=request.url.path,
         method=request.method,
         error=str(exc),
-        exc_info=True,
     )
     return JSONResponse(
         status_code=500,

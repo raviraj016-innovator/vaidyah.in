@@ -23,17 +23,18 @@ output "private_subnet_ids" {
 
 output "eks_cluster_name" {
   description = "Name of the EKS cluster"
-  value       = module.eks.cluster_name
+  value       = module.eks.cluster_id
 }
 
 output "eks_cluster_endpoint" {
   description = "Endpoint URL for the EKS cluster API server"
   value       = module.eks.cluster_endpoint
+  sensitive   = true
 }
 
-output "eks_cluster_arn" {
-  description = "ARN of the EKS cluster"
-  value       = module.eks.cluster_arn
+output "eks_cluster_oidc_issuer_url" {
+  description = "OIDC issuer URL for the EKS cluster"
+  value       = module.eks.cluster_oidc_issuer_url
 }
 
 output "eks_node_role_arn" {
@@ -41,32 +42,28 @@ output "eks_node_role_arn" {
   value       = module.eks.node_role_arn
 }
 
-output "eks_oidc_provider_arn" {
-  description = "ARN of the EKS OIDC provider"
-  value       = module.eks.oidc_provider_arn
-}
-
 output "eks_kubeconfig_command" {
   description = "Command to update kubeconfig for EKS cluster access"
-  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_name}"
+  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${module.eks.cluster_id}"
 }
 
 # ── RDS Outputs ──────────────────────────────────────────────────────────────
 
 output "rds_endpoint" {
   description = "RDS instance endpoint (host:port)"
-  value       = module.rds.endpoint
+  value       = module.rds.db_endpoint
+  sensitive   = true
 }
 
 output "rds_connection_string" {
   description = "PostgreSQL connection string (password not included)"
-  value       = "postgresql://${var.rds_master_username}:<password>@${module.rds.endpoint}/${var.rds_database_name}"
+  value       = "postgresql://${var.rds_master_username}:<password>@${module.rds.db_endpoint}/${var.rds_database_name}"
   sensitive   = true
 }
 
-output "rds_arn" {
-  description = "ARN of the RDS instance"
-  value       = module.rds.arn
+output "rds_secret_arn" {
+  description = "ARN of the Secrets Manager secret containing the database password"
+  value       = module.rds.db_secret_arn
 }
 
 # ── DynamoDB Outputs ─────────────────────────────────────────────────────────
@@ -81,21 +78,21 @@ output "dynamodb_sessions_table_arn" {
   value       = module.dynamodb.sessions_table_arn
 }
 
-output "dynamodb_chat_logs_table_name" {
-  description = "Name of the DynamoDB chat_logs table"
-  value       = module.dynamodb.chat_logs_table_name
+output "dynamodb_voice_chunks_table_name" {
+  description = "Name of the DynamoDB voice_chunks table"
+  value       = module.dynamodb.voice_chunks_table_name
 }
 
-output "dynamodb_chat_logs_table_arn" {
-  description = "ARN of the DynamoDB chat_logs table"
-  value       = module.dynamodb.chat_logs_table_arn
+output "dynamodb_voice_chunks_table_arn" {
+  description = "ARN of the DynamoDB voice_chunks table"
+  value       = module.dynamodb.voice_chunks_table_arn
 }
 
 # ── S3 Outputs ───────────────────────────────────────────────────────────────
 
 output "s3_voice_recordings_bucket" {
   description = "Name of the voice recordings S3 bucket"
-  value       = module.s3.voice_recordings_bucket_name
+  value       = module.s3.voice_bucket_name
 }
 
 output "s3_documents_bucket" {
@@ -105,12 +102,12 @@ output "s3_documents_bucket" {
 
 output "s3_medical_images_bucket" {
   description = "Name of the medical images S3 bucket"
-  value       = module.s3.medical_images_bucket_name
+  value       = module.s3.images_bucket_name
 }
 
 output "s3_voice_recordings_bucket_arn" {
   description = "ARN of the voice recordings S3 bucket"
-  value       = module.s3.voice_recordings_bucket_arn
+  value       = module.s3.voice_bucket_arn
 }
 
 output "s3_documents_bucket_arn" {
@@ -120,7 +117,7 @@ output "s3_documents_bucket_arn" {
 
 output "s3_medical_images_bucket_arn" {
   description = "ARN of the medical images S3 bucket"
-  value       = module.s3.medical_images_bucket_arn
+  value       = module.s3.images_bucket_arn
 }
 
 # ── OpenSearch Outputs ───────────────────────────────────────────────────────
@@ -128,11 +125,12 @@ output "s3_medical_images_bucket_arn" {
 output "opensearch_endpoint" {
   description = "OpenSearch domain endpoint"
   value       = module.opensearch.domain_endpoint
+  sensitive   = true
 }
 
-output "opensearch_dashboard_endpoint" {
-  description = "OpenSearch Dashboards endpoint"
-  value       = module.opensearch.dashboard_endpoint
+output "opensearch_domain_id" {
+  description = "OpenSearch domain ID"
+  value       = module.opensearch.domain_id
 }
 
 output "opensearch_domain_arn" {
@@ -155,18 +153,20 @@ output "cognito_patients_user_pool_id" {
 output "cognito_providers_client_id" {
   description = "App client ID for healthcare providers pool"
   value       = module.cognito.providers_client_id
+  sensitive   = true
 }
 
 output "cognito_patients_client_id" {
   description = "App client ID for patients pool"
   value       = module.cognito.patients_client_id
+  sensitive   = true
 }
 
 # ── API Gateway Outputs ──────────────────────────────────────────────────────
 
 output "api_gateway_rest_api_id" {
   description = "ID of the API Gateway REST API"
-  value       = module.api_gateway.rest_api_id
+  value       = module.api_gateway.api_id
 }
 
 output "api_gateway_invoke_urls" {

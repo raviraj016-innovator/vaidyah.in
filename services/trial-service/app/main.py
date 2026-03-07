@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.routers import ingest, match, notifications, search
-from app.services.db import close_db_pool, init_db_pool
+from app.services.db import close_db_pool, ensure_schema, init_db_pool
 from app.services.notification_engine import scheduler, start_scheduler
 from app.services.opensearch_client import get_opensearch_client
 
@@ -37,6 +37,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db_pool()
     logger.info("database_pool_initialised")
 
+    # Create tables / indexes if they don't exist yet
+    await ensure_schema()
+    logger.info("database_schema_ensured")
+
     # Ensure OpenSearch index exists with proper mapping
     os_client = get_opensearch_client()
     os_client.ensure_index()
@@ -50,8 +54,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Shutdown
     logger.info("shutting_down_trial_service")
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
+    try:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+    except Exception as exc:
+        logger.warning("scheduler_shutdown_failed", error=str(exc))
     await close_db_pool()
     logger.info("shutdown_complete")
 
@@ -59,6 +66,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # --------------------------------------------------------------------------- #
 #  App factory
 # --------------------------------------------------------------------------- #
+
+_is_prod = settings.environment.lower() == "production"
 
 app = FastAPI(
     title="Vaidyah Trial Intelligence Service",
@@ -68,17 +77,24 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
 )
 
 # ---------- CORS ----------
+# Validate CORS origins: reject wildcard in production
+if _is_prod and "*" in settings.cors_origins:
+    raise ValueError(
+        "CORS wildcard origin ('*') is not permitted in production. "
+        "Set explicit origins in the CORS_ORIGINS environment variable."
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Request-ID"],
 )
 
 
@@ -105,9 +121,11 @@ app.include_router(ingest.router, prefix=settings.api_prefix, tags=["Ingest / ET
 @app.get("/health", tags=["Health"])
 async def health_check() -> dict:
     """Liveness / readiness probe."""
-    return {
+    result: dict = {
         "status": "healthy",
         "service": settings.service_name,
-        "environment": settings.environment,
-        "version": "1.0.0",
     }
+    if not _is_prod:
+        result["environment"] = settings.environment
+        result["version"] = "1.0.0"
+    return result

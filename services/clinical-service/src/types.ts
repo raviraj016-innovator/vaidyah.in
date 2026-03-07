@@ -37,6 +37,7 @@ export interface ApiResponse<T = unknown> {
   meta?: {
     requestId?: string;
     timestamp?: string;
+    warning?: string;
   };
 }
 

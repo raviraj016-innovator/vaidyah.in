@@ -94,7 +94,7 @@ export interface CurrentMedication {
   genericName: string;
   dosage: string;
   frequency: string;
-  route: 'oral' | 'topical' | 'injection' | 'inhalation' | 'sublingual' | 'rectal' | 'other';
+  route: 'oral' | 'topical' | 'injection' | 'inhalation' | 'sublingual' | 'rectal' | 'iv' | 'im' | 'sc' | 'other';
   prescribedBy?: string;
   startDate: string;
   endDate?: string;

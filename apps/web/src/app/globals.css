@@ -1,0 +1,183 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Reset & Base ─────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #fafafa;
+  color: #0f172a;
+}
+
+/* ─── Custom Scrollbar ─────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ─── Ant Design Overrides ─────────────────────────────────────────────── */
+
+.ant-layout {
+  min-height: 100vh;
+}
+
+/* Cards — subtle border, clean shadow */
+.ant-card {
+  border-radius: 14px !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+  transition: box-shadow 0.3s ease, transform 0.3s ease !important;
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+}
+
+/* Tables — clean headers */
+.ant-table-thead > tr > th {
+  background: #f9fafb !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: #6b7280 !important;
+  border-bottom: 1px solid #e5e7eb !important;
+}
+
+/* Menu — clean active states */
+.ant-menu-item-selected {
+  font-weight: 600 !important;
+}
+
+/* Alert — refined */
+.ant-alert {
+  border-radius: 12px !important;
+}
+
+/* Tag — refined */
+.ant-tag {
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+}
+
+/* Modal — refined */
+.ant-modal-content {
+  border-radius: 16px !important;
+}
+
+/* Dropdown — refined */
+.ant-dropdown .ant-dropdown-menu {
+  border-radius: 12px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04) !important;
+}
+
+/* Badge — clean */
+.ant-badge .ant-badge-count {
+  box-shadow: 0 0 0 2px #fff !important;
+}
+
+/* ─── Triage Color Classes ─────────────────────────────────────────────── */
+
+.triage-a {
+  color: #dc2626;
+  background-color: #fef2f2;
+  border-color: #fecaca;
+}
+
+.triage-b {
+  color: #d97706;
+  background-color: #fffbeb;
+  border-color: #fde68a;
+}
+
+.triage-c {
+  color: #16a34a;
+  background-color: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+/* ─── Smooth Page Transitions ──────────────────────────────────────────── */
+
+.ant-layout-content {
+  transition: opacity 0.15s ease;
+}
+
+/* ─── Tables — horizontal scroll on mobile ─────────────────────────────── */
+
+.ant-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ─── Responsive — tablet & mobile ────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .ant-drawer-content-wrapper {
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+
+  .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  .ant-layout-content {
+    padding: 16px !important;
+  }
+
+  .ant-card {
+    border-radius: 12px !important;
+  }
+
+  .ant-descriptions-item-label {
+    font-size: 12px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .ant-layout-content {
+    padding: 12px !important;
+  }
+
+  .ant-card-body {
+    padding: 16px !important;
+  }
+
+  .greeting-card .ant-card-body {
+    padding: 20px 16px !important;
+  }
+
+  .emergency-banner .ant-card-body {
+    padding: 20px 16px !important;
+  }
+}
+
+/* ─── Loading Spinner ──────────────────────────────────────────────────── */
+
+@keyframes app-spin {
+  to { transform: rotate(360deg); }
+}

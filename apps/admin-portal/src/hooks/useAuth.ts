@@ -9,19 +9,17 @@ import { authApi } from '../config/api';
 
 export function useAuth() {
   const navigate = useNavigate();
-  const {
-    user,
-    token,
-    isAuthenticated,
-    isLoading,
-    login,
-    logout: storeLogout,
-    setLoading,
-    hasPermission,
-    hasAnyPermission,
-    hasRole,
-    hasAnyRole,
-  } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const login = useAuthStore((s) => s.login);
+  const storeLogout = useAuthStore((s) => s.logout);
+  const setLoading = useAuthStore((s) => s.setLoading);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const hasAnyPermission = useAuthStore((s) => s.hasAnyPermission);
+  const hasRole = useAuthStore((s) => s.hasRole);
+  const hasAnyRole = useAuthStore((s) => s.hasAnyRole);
 
   const handleLogin = useCallback(
     async (email: string, password: string) => {

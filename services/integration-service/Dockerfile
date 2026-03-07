@@ -3,8 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+COPY package.json ./
+RUN npm install --ignore-scripts
 
 COPY tsconfig.json ./
 COPY src/ ./src/
@@ -22,8 +22,8 @@ WORKDIR /app
 RUN addgroup -g 1001 -S vaidyah && \
     adduser -S vaidyah -u 1001 -G vaidyah
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY package.json ./
+RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 

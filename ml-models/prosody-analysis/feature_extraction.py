@@ -12,7 +12,7 @@ import numpy as np
 import scipy.signal
 from scipy.stats import kurtosis, skew
 
-from config import (
+from .config import (
     AudioConfig,
     EnergyConfig,
     FeatureConfig,
@@ -23,7 +23,7 @@ from config import (
     VoiceQualityConfig,
 )
 
-warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="librosa")
 
 
 class ProsodyFeatureExtractor:
@@ -95,13 +95,16 @@ class ProsodyFeatureExtractor:
 
         return features
 
+    # Canonical feature order matching FeatureConfig.total_feature_dim layout
+    FEATURE_ORDER = ["mfcc", "pitch", "energy", "speaking_rate", "pause", "voice_quality"]
+
     def extract_flat_vector(
         self, audio: np.ndarray, sr: int, normalize: bool = True
     ) -> np.ndarray:
         """Extract all features and return as a single flat vector."""
         features = self.extract_all(audio, sr, normalize=normalize)
         return np.concatenate(
-            [features[k].ravel() for k in sorted(features.keys())], axis=0
+            [features[k].ravel() for k in self.FEATURE_ORDER], axis=0
         ).astype(np.float32)
 
     # ---------------------------------------------------------------------- #
@@ -112,13 +115,27 @@ class ProsodyFeatureExtractor:
         """Resample, convert to mono, clip length, and apply pre-emphasis."""
         cfg = self.config.audio
 
-        # Mono
-        if audio.ndim > 1:
-            audio = np.mean(audio, axis=0)
+        # Handle both (channels, samples) and (samples, channels) layouts
+        if audio.ndim == 2:
+            if audio.shape[0] <= 2:  # Likely (channels, samples)
+                audio = np.mean(audio, axis=0)
+            else:  # Likely (samples, channels)
+                audio = np.mean(audio, axis=1)
+        elif audio.ndim > 2:
+            raise ValueError(f"Expected 1-D or 2-D audio, got {audio.ndim}-D")
 
         # Resample
         if sr != cfg.sample_rate:
             audio = librosa.resample(audio, orig_sr=sr, target_sr=cfg.sample_rate)
+
+        # Bug 9 fix: enforce minimum duration before pre-emphasis
+        min_samples = int(cfg.min_duration_sec * cfg.sample_rate)
+        if len(audio) < min_samples:
+            raise ValueError(
+                f"Audio too short: {len(audio)} samples "
+                f"({len(audio) / cfg.sample_rate:.3f}s), minimum required is "
+                f"{min_samples} samples ({cfg.min_duration_sec}s)"
+            )
 
         # Clip to max duration
         max_samples = int(cfg.max_duration_sec * cfg.sample_rate)
@@ -397,11 +414,17 @@ class ProsodyFeatureExtractor:
             return np.zeros(5, dtype=np.float32)
 
         # --- Jitter (period perturbation) ---
-        periods = 1.0 / (voiced_f0 + 1e-10)
+        # Filter out near-zero F0 values that would produce unrealistic periods
+        voiced_f0 = voiced_f0[voiced_f0 > 50.0]  # Minimum 50 Hz
+        if len(voiced_f0) < 5:
+            return np.zeros(5, dtype=np.float32)
+
+        periods = 1.0 / voiced_f0
 
         # Local jitter: mean absolute difference between consecutive periods
         period_diffs = np.abs(np.diff(periods))
-        jitter_local = float(np.mean(period_diffs) / (np.mean(periods) + 1e-10))
+        mean_period = np.mean(periods)
+        jitter_local = float(np.mean(period_diffs) / mean_period) if mean_period > 0 else 0.0
 
         # PPQ5 jitter: 5-point period perturbation quotient
         if len(periods) >= 5:
@@ -475,8 +498,8 @@ class ProsodyFeatureExtractor:
             peak_idx = np.argmax(search_region)
             peak_val = search_region[peak_idx]
 
-            if peak_val > 0 and peak_val < 1.0:
-                hnr_db = 10.0 * np.log10(peak_val / (1.0 - peak_val + 1e-10) + 1e-10)
+            if peak_val > 0 and peak_val < 0.9999:
+                hnr_db = 10.0 * np.log10(peak_val / max(1.0 - peak_val, 1e-6))
                 hnr_values.append(hnr_db)
 
         return float(np.mean(hnr_values)) if hnr_values else 0.0
@@ -490,6 +513,11 @@ class ProsodyFeatureExtractor:
         Compute per-feature mean and std from a list of extracted feature dicts.
         Call this on the training set before calling extract_all with normalize=True.
         """
+        # Bug 6 fix: return early with empty stats if feature_list is empty
+        if not feature_list:
+            self._normalization_stats = {}
+            return
+
         stats: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
 
         keys = feature_list[0].keys()

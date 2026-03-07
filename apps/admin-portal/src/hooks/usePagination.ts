@@ -55,8 +55,9 @@ export function usePagination<T = unknown>(
 
   const [page, setPageState] = useState(initialPage);
   const [pageSize, setPageSizeState] = useState(initialPageSize);
+  const [overriddenTotal, setOverriddenTotal] = useState<number | undefined>(undefined);
 
-  const totalItems = externalTotal ?? data.length;
+  const totalItems = overriddenTotal ?? externalTotal ?? data.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   const startIndex = (page - 1) * pageSize;
@@ -90,9 +91,8 @@ export function usePagination<T = unknown>(
     [],
   );
 
-  const [, setTotalItemsState] = useState(externalTotal ?? 0);
   const setTotalItems = useCallback((total: number) => {
-    setTotalItemsState(total);
+    setOverriddenTotal(total);
   }, []);
 
   const nextPage = useCallback(() => {
@@ -127,13 +127,13 @@ export function usePagination<T = unknown>(
     const start = Math.max(2, page - 1);
     const end = Math.min(totalPages - 1, page + 1);
 
-    if (start > 2) pages.push(-1); // Ellipsis marker
+    if (start > 2) pages.push(-1); // Left ellipsis marker
 
     for (let i = start; i <= end; i++) {
       pages.push(i);
     }
 
-    if (end < totalPages - 1) pages.push(-1); // Ellipsis marker
+    if (end < totalPages - 1) pages.push(-2); // Right ellipsis marker
     pages.push(totalPages);
 
     return pages;

@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: true,
+    host: process.env.VITE_DEV_HOST === 'true',
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
@@ -26,7 +26,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {

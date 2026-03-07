@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import wave
 from typing import Any, Optional
 
 import numpy as np
@@ -21,6 +22,8 @@ from app.config import Settings
 from app.models import EmotionalScores, ProsodyAnalysisResult, ProsodyFeatures
 
 logger = structlog.get_logger("voice.services.prosody")
+
+_INIT_FAILED = object()
 
 # ---------------------------------------------------------------------------
 # Reference ranges for healthy adult speech (used in rule-based scoring)
@@ -45,7 +48,7 @@ class ProsodyAnalyzerService:
     def _get_sagemaker_client(self) -> Optional[Any]:
         if (
             not self._settings.sagemaker_prosody_endpoint
-            or self._sagemaker_client is False  # sentinel: already tried & failed
+            or self._sagemaker_client is _INIT_FAILED
         ):
             return None
         if self._sagemaker_client is None:
@@ -53,13 +56,13 @@ class ProsodyAnalyzerService:
                 import boto3
 
                 kwargs: dict[str, Any] = {"region_name": self._settings.aws_region}
-                if self._settings.aws_access_key_id:
+                if self._settings.aws_access_key_id and self._settings.aws_secret_access_key:
                     kwargs["aws_access_key_id"] = self._settings.aws_access_key_id
                     kwargs["aws_secret_access_key"] = self._settings.aws_secret_access_key
                 self._sagemaker_client = boto3.client("sagemaker-runtime", **kwargs)
             except Exception:
                 logger.warning("prosody.sagemaker_client_init_failed", exc_info=True)
-                self._sagemaker_client = False  # type: ignore[assignment]
+                self._sagemaker_client = _INIT_FAILED  # type: ignore[assignment]
                 return None
         return self._sagemaker_client
 
@@ -110,8 +113,11 @@ class ProsodyAnalyzerService:
         """Extract prosodic features from raw PCM/WAV audio bytes."""
         import librosa
 
-        # Load audio from bytes
-        audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+        # Parse WAV header to extract raw PCM frames (avoids interpreting
+        # the 44-byte WAV header as sample data).
+        with wave.open(io.BytesIO(audio_bytes), 'rb') as wf:
+            raw_frames = wf.readframes(wf.getnframes())
+        audio_array = np.frombuffer(raw_frames, dtype=np.int16).astype(np.float32)
         audio_array = audio_array / 32768.0  # normalise to [-1, 1]
 
         if len(audio_array) == 0:
@@ -278,7 +284,11 @@ class ProsodyAnalyzerService:
             ),
         )
 
-        result_body = response["Body"].read().decode("utf-8")
+        body_stream = response["Body"]
+        try:
+            result_body = body_stream.read().decode("utf-8")
+        finally:
+            body_stream.close()
         result = json.loads(result_body)
 
         scores = EmotionalScores(

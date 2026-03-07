@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, AsyncIterator, Optional
+from typing import Any, Iterator, Optional
 
 import boto3
 import structlog
@@ -21,7 +21,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from app.config import settings
+from app.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +34,7 @@ class BedrockClient:
     """Wrapper around the AWS Bedrock Runtime client for Claude invocations."""
 
     def __init__(self) -> None:
+        settings = get_settings()
         boto_config = BotoConfig(
             region_name=settings.aws_region,
             retries={"max_attempts": 0, "mode": "standard"},
@@ -56,6 +57,8 @@ class BedrockClient:
         self._max_tokens = settings.bedrock_max_tokens
         self._temperature = settings.bedrock_temperature
         self._top_p = settings.bedrock_top_p
+        self._retry_max_attempts = settings.bedrock_retry_max_attempts
+        self._retry_base_delay = settings.bedrock_retry_base_delay
 
         logger.info(
             "bedrock_client_initialized",
@@ -68,12 +71,10 @@ class BedrockClient:
     # ------------------------------------------------------------------
 
     @retry(
-        retry=retry_if_exception_type((ClientError, ConnectionError)),
-        stop=stop_after_attempt(settings.bedrock_retry_max_attempts),
-        wait=wait_exponential(
-            multiplier=settings.bedrock_retry_base_delay, min=1, max=30
-        ),
         reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=30),
+        retry=retry_if_exception_type((ClientError, ConnectionError)),
     )
     def invoke(
         self,
@@ -126,7 +127,13 @@ class BedrockClient:
                 body=json.dumps(body),
             )
 
-            response_body = json.loads(response["body"].read())
+            body_stream = response.get("body")
+            if body_stream is None:
+                raise BedrockClientError("Bedrock response missing 'body' field")
+            try:
+                response_body = json.loads(body_stream.read())
+            finally:
+                body_stream.close()
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
             content_text = self._extract_text(response_body)
@@ -148,7 +155,7 @@ class BedrockClient:
             }
 
         except ClientError as exc:
-            error_code = exc.response["Error"]["Code"]
+            error_code = exc.response.get("Error", {}).get("Code", "Unknown")
             logger.error(
                 "bedrock_invoke_error",
                 error_code=error_code,
@@ -188,14 +195,6 @@ class BedrockClient:
             "elapsed_ms": result["elapsed_ms"],
         }
 
-    @retry(
-        retry=retry_if_exception_type((ClientError, ConnectionError)),
-        stop=stop_after_attempt(settings.bedrock_retry_max_attempts),
-        wait=wait_exponential(
-            multiplier=settings.bedrock_retry_base_delay, min=1, max=30
-        ),
-        reraise=True,
-    )
     def invoke_stream(
         self,
         *,
@@ -203,7 +202,7 @@ class BedrockClient:
         user_message: str,
         max_tokens: int | None = None,
         temperature: float | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> Iterator[str]:
         """Invoke Claude with streaming and yield text chunks.
 
         Returns an iterator over text delta strings.
@@ -216,6 +215,7 @@ class BedrockClient:
             top_p=self._top_p,
         )
 
+        stream = None
         try:
             response = self._client.invoke_model_with_response_stream(
                 modelId=self._model_id,
@@ -228,7 +228,11 @@ class BedrockClient:
                 for event in stream:
                     chunk = event.get("chunk")
                     if chunk:
-                        chunk_data = json.loads(chunk["bytes"])
+                        try:
+                            chunk_data = json.loads(chunk.get("bytes", b"{}"))
+                        except json.JSONDecodeError:
+                            logger.warning("bedrock_stream_invalid_json_chunk")
+                            continue
                         if chunk_data.get("type") == "content_block_delta":
                             delta = chunk_data.get("delta", {})
                             text = delta.get("text", "")
@@ -240,6 +244,12 @@ class BedrockClient:
             raise BedrockClientError(
                 f"Bedrock streaming failed: {exc}"
             ) from exc
+        finally:
+            if stream and hasattr(stream, "close"):
+                try:
+                    stream.close()
+                except Exception:
+                    pass
 
     def count_tokens(self, text: str) -> int:
         """Estimate token count for a string.
@@ -292,7 +302,7 @@ class BedrockClient:
         parts: list[str] = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block["text"])
+                parts.append(block.get("text", ""))
         return "\n".join(parts)
 
     @staticmethod
@@ -308,13 +318,19 @@ class BedrockClient:
 
         # Try extracting from markdown code fence
         if "```json" in text:
-            start = text.index("```json") + 7
-            end = text.index("```", start)
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            if end == -1:
+                # Unterminated fence -- take everything after the opening
+                return json.loads(text[start:].strip())
             return json.loads(text[start:end].strip())
 
         if "```" in text:
-            start = text.index("```") + 3
-            end = text.index("```", start)
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            if end == -1:
+                # Unterminated fence -- take everything after the opening
+                return json.loads(text[start:].strip())
             return json.loads(text[start:end].strip())
 
         # Try finding first { or [

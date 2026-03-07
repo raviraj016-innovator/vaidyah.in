@@ -119,7 +119,7 @@ export interface Contradiction {
 export interface Symptom {
   name: string;
   bodySystem: string;
-  severity: 'mild' | 'moderate' | 'severe';
+  severity: 'mild' | 'moderate' | 'severe' | 'critical';
   duration?: string;
   onset?: 'sudden' | 'gradual';
   frequency?: 'constant' | 'intermittent' | 'episodic';

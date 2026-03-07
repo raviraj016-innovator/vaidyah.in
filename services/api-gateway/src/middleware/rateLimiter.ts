@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
 import config from '../config';
 import { getRedisClient } from '../services/redis';
-import { AuthenticatedRequest, UserRole } from '../types';
+import { AuthenticatedRequest } from '../types';
 import { AppError } from './errorHandler';
 
 // ─── Redis-backed Rate Limit Store ──────────────────────────────────────────
@@ -27,25 +27,26 @@ class RedisRateLimitStore {
   async increment(id: string): Promise<{ totalHits: number; resetTime: Date }> {
     const redis = getRedisClient();
     const key = this.key(id);
-    const windowSeconds = Math.ceil(this.windowMs / 1000);
 
-    // INCR + conditional EXPIRE in a pipeline for atomicity
-    const pipeline = redis.pipeline();
-    pipeline.incr(key);
-    pipeline.pttl(key);
-    const results = await pipeline.exec();
+    // Atomic INCR + conditional PEXPIRE via Lua script to prevent race conditions
+    const RATE_LIMIT_SCRIPT = `
+      local current = redis.call('INCR', KEYS[1])
+      if current == 1 then
+        redis.call('PEXPIRE', KEYS[1], ARGV[1])
+      end
+      local ttl = redis.call('PTTL', KEYS[1])
+      return {current, ttl}
+    `;
 
-    if (!results) {
-      throw new Error('Redis pipeline returned null');
-    }
+    const result = await redis.eval(
+      RATE_LIMIT_SCRIPT,
+      1,
+      key,
+      String(this.windowMs),
+    ) as [number, number];
 
-    const totalHits = results[0]?.[1] as number;
-    const pttl = results[1]?.[1] as number;
-
-    // If TTL is not set (-1 or -2), set it now
-    if (pttl < 0) {
-      await redis.expire(key, windowSeconds);
-    }
+    const totalHits = result[0];
+    const pttl = result[1];
 
     const resetTime = new Date(Date.now() + (pttl > 0 ? pttl : this.windowMs));
     return { totalHits, resetTime };
@@ -65,14 +66,6 @@ class RedisRateLimitStore {
 
 // ─── Per-Role Rate Limiting ─────────────────────────────────────────────────
 
-const roleLimits: Record<UserRole, number> = {
-  patient: config.rateLimit.patient,
-  nurse: config.rateLimit.nurse,
-  doctor: config.rateLimit.doctor,
-  admin: config.rateLimit.admin,
-  system: config.rateLimit.admin, // system accounts get admin-level limits
-};
-
 /**
  * Resolves the rate-limit key: authenticated users are keyed by their
  * user ID + role; anonymous users are keyed by IP.
@@ -91,13 +84,13 @@ function keyGenerator(req: Request): string {
 }
 
 /**
- * Returns the max requests for the current user's role.
+ * Returns the max requests for the current user.
+ *
+ * NOTE: req.user is undefined at this point because the rate limiter runs
+ * before the auth middleware. Role-aware limits should be applied per-route
+ * after authentication instead.
  */
-function maxForUser(req: Request): number {
-  const authReq = req as AuthenticatedRequest;
-  if (authReq.user?.role) {
-    return roleLimits[authReq.user.role] ?? config.rateLimit.default;
-  }
+function maxForUser(_req: Request): number {
   return config.rateLimit.default;
 }
 

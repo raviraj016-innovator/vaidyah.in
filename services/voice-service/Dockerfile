@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS base
+FROM python:3.11.11-slim AS base
 
 LABEL maintainer="Vaidyah Platform Team"
 LABEL service="voice-service"
@@ -34,9 +34,9 @@ COPY . .
 RUN chown -R appuser:appuser /app
 USER appuser
 
-EXPOSE 8003
+EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8003/health || exit 1
+    CMD curl -f http://localhost:8001/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003", "--workers", "2", "--loop", "uvloop", "--limit-concurrency", "100"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--loop", "uvloop", "--limit-concurrency", "100"]

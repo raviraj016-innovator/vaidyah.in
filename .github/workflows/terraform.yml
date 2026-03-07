@@ -1,0 +1,223 @@
+name: Terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      action:
+        description: Terraform action
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: ap-south-1
+  TF_VERSION: "1.7.0"
+  TF_WORKING_DIR: infra/terraform
+
+jobs:
+  detect-environments:
+    name: Detect Environments
+    runs-on: ubuntu-latest
+    outputs:
+      environments: ${{ steps.envs.outputs.environments }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - id: envs
+        env:
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Validate environment input against allowlist
+            if [[ ! "$INPUT_ENV" =~ ^(dev|staging|prod)$ ]]; then
+              echo "::error::Invalid environment: must be dev, staging, or prod"
+              exit 1
+            fi
+            echo "environments=[\"${INPUT_ENV}\"]" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
+          else
+            CHANGED=$(git diff --name-only HEAD~1 HEAD -- infra/terraform/environments/ 2>/dev/null || echo "")
+            ENVS=()
+            for env in dev staging prod; do
+              if echo "$CHANGED" | grep -q "environments/$env/" 2>/dev/null; then
+                ENVS+=("\"$env\"")
+              fi
+            done
+            if [[ ${#ENVS[@]} -eq 0 ]]; then
+              ENVS=("\"dev\"" "\"staging\"" "\"prod\"")
+            fi
+            JOINED=$(IFS=,; echo "[${ENVS[*]}]")
+            echo "environments=$JOINED" >> "$GITHUB_OUTPUT"
+          fi
+
+  plan:
+    name: Plan (${{ matrix.environment }})
+    needs: detect-environments
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJson(needs.detect-environments.outputs.environments) }}
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="key=infrastructure/${{ matrix.environment }}/terraform.tfstate"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file="environments/${{ matrix.environment }}/terraform.tfvars" \
+            -var="environment=${{ matrix.environment }}" \
+            -out="${{ matrix.environment }}.tfplan" \
+            -detailed-exitcode \
+            -no-color 2>&1 | tee plan_output.txt
+          echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: |
+            ${{ env.TF_WORKING_DIR }}/${{ matrix.environment }}.tfplan
+            ${{ env.TF_WORKING_DIR }}/plan_output.txt
+          retention-days: 1
+
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+            const maxLen = 60000;
+            const truncated = plan.length > maxLen
+              ? plan.substring(0, maxLen) + '\n\n... (truncated)'
+              : plan;
+
+            const body = `### Terraform Plan: \`${{ matrix.environment }}\`
+
+            \`\`\`hcl
+            ${truncated}
+            \`\`\`
+
+            *Plan exit code: \`${{ steps.plan.outputs.exitcode }}\`*
+            *Pusher: @${{ github.actor }}*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const marker = `### Terraform Plan: \`${{ matrix.environment }}\``;
+            const existing = comments.find(c => c.body.startsWith(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail on plan error
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
+
+  apply:
+    name: Apply (${{ matrix.environment }})
+    needs: [detect-environments, plan]
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    runs-on: ubuntu-latest
+    environment:
+      name: terraform-${{ matrix.environment }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        environment: ${{ fromJson(needs.detect-environments.outputs.environments) }}
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="key=infrastructure/${{ matrix.environment }}/terraform.tfstate"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply
+        run: |
+          terraform apply \
+            -no-color \
+            "${{ matrix.environment }}.tfplan"

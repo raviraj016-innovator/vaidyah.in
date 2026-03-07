@@ -6,6 +6,7 @@
 export type UserRole =
   | 'asha_worker'
   | 'anm'
+  | 'nurse'
   | 'staff_nurse'
   | 'pharmacist'
   | 'lab_technician'
@@ -89,6 +90,18 @@ export const ROLE_DEFINITIONS: Record<UserRole, RoleDefinition> = {
     canSupervise: ['asha_worker'],
     requiredQualification: 'ANM Diploma',
     minFacilityTier: 'health_sub_center',
+  },
+  nurse: {
+    role: 'nurse',
+    displayName: 'Nurse',
+    description: 'General nurse at health facility',
+    permissions: [
+      'patient:read', 'patient:write', 'consultation:read', 'consultation:write',
+      'triage:perform', 'lab:order',
+    ],
+    canSupervise: ['asha_worker'],
+    requiredQualification: 'GNM Diploma',
+    minFacilityTier: 'primary_health_center',
   },
   staff_nurse: {
     role: 'staff_nurse',

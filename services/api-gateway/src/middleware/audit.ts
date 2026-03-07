@@ -61,7 +61,7 @@ export function auditLogger(
 
     const entry: AuditEntry = {
       userId: req.user?.sub ?? 'anonymous',
-      userRole: req.user?.role ?? 'patient',
+      userRole: req.user?.role ?? 'anonymous',
       action: mapMethodToAction(req.method),
       resource,
       resourceId,

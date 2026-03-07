@@ -9,6 +9,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+from functools import lru_cache
+
 import structlog
 from fastapi import (
     APIRouter,
@@ -29,10 +31,9 @@ logger = structlog.get_logger("voice.language")
 router = APIRouter()
 
 
-def _get_language_detector(
-    settings: Settings = Depends(get_settings),
-) -> LanguageDetectorService:
-    return LanguageDetectorService(settings)
+@lru_cache(maxsize=1)
+def _get_language_detector() -> LanguageDetectorService:
+    return LanguageDetectorService(get_settings())
 
 
 # ---------------------------------------------------------------------------
@@ -70,12 +71,17 @@ async def detect_language(
 
     # --- Audio-based detection ---
     if file is not None:
-        contents = await file.read()
-        if len(contents) > settings.max_audio_file_size_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File exceeds {settings.max_audio_file_size_mb} MB",
-            )
+        chunks = []
+        total = 0
+        while chunk := await file.read(8192):
+            total += len(chunk)
+            if total > settings.max_audio_file_size_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File exceeds {settings.max_audio_file_size_mb} MB",
+                )
+            chunks.append(chunk)
+        contents = b"".join(chunks)
 
         file_ext = (file.filename or "audio.wav").rsplit(".", 1)[-1].lower()
         try:
@@ -88,7 +94,7 @@ async def detect_language(
             log.warning("language.audio_normalize_failed", error=str(exc))
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Could not process audio: {exc}",
+                detail="Could not process audio file. Please check the format and try again.",
             )
 
         audio_result = await lang_detector.detect_from_audio(audio_bytes, sample_rate)
@@ -115,6 +121,10 @@ async def detect_language(
         return combined
 
     result = audio_result or text_result
-    assert result is not None
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one of audio_file or text must be provided",
+        )
     result.request_id = request_id
     return result

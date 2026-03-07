@@ -10,7 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # --- Server ---
     host: str = "0.0.0.0"
-    port: int = 8003
+    port: int = 8001
     workers: int = 2
 
     # --- AWS General ---
@@ -89,7 +89,7 @@ class Settings(BaseSettings):
 
     # --- Auth / JWT ---
     jwt_secret_key: str = Field(
-        default="change-me-in-production",
+        default="dev-secret-do-not-use-in-production",
         alias="JWT_SECRET_KEY",
     )
     jwt_algorithm: str = "HS256"
@@ -100,7 +100,6 @@ class Settings(BaseSettings):
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
-        "https://*.vaidyah.health",
     ]
 
     # --- Audio Processing ---
@@ -129,6 +128,22 @@ class Settings(BaseSettings):
     @property
     def max_audio_file_size_bytes(self) -> int:
         return self.max_audio_file_size_mb * 1024 * 1024
+
+    @model_validator(mode="after")
+    def _check_production_secrets(self) -> "Settings":
+        if self.environment == "production":
+            import os
+            if not os.environ.get("JWT_SECRET_KEY"):
+                raise ValueError(
+                    "JWT_SECRET_KEY environment variable must be set explicitly "
+                    "in production to ensure consistency across processes."
+                )
+            if not self.auth_enabled:
+                raise ValueError(
+                    "AUTH_ENABLED must be True in production. "
+                    "Disabling authentication in production is not allowed."
+                )
+        return self
 
     @property
     def is_production(self) -> bool:

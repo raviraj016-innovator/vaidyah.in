@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime, timezone
@@ -45,7 +46,7 @@ _W_LOCATION = 0.20
 _W_PHASE = 0.15
 
 
-def _parse_age_string(age_str: Optional[str]) -> Optional[int]:
+def _parse_age_string(age_str: Optional[str]) -> Optional[float]:
     """Parse ClinicalTrials.gov age strings like '18 Years' to integer."""
     if not age_str:
         return None
@@ -55,9 +56,11 @@ def _parse_age_string(age_str: Optional[str]) -> Optional[int]:
     value = int(match.group(1))
     lower = age_str.lower()
     if "month" in lower:
-        return max(value // 12, 0)
-    if "day" in lower or "week" in lower:
-        return 0
+        return max(value / 12.0, 0)
+    if "week" in lower:
+        return max(value / 52.0, 0)
+    if "day" in lower:
+        return max(value / 365.25, 0)
     return value
 
 
@@ -81,8 +84,8 @@ def check_basic_eligibility(
             return False, 0.0, [f"Gender mismatch: trial requires {trial_gender}"]
 
     # -- Age range --
-    min_age = elig.get("minimum_age_years") or _parse_age_string(elig.get("minimum_age"))
-    max_age = elig.get("maximum_age_years") or _parse_age_string(elig.get("maximum_age"))
+    min_age = elig.get("minimum_age_years") if elig.get("minimum_age_years") is not None else _parse_age_string(elig.get("minimum_age"))
+    max_age = elig.get("maximum_age_years") if elig.get("maximum_age_years") is not None else _parse_age_string(elig.get("maximum_age"))
 
     if profile.age is not None:
         if min_age is not None and profile.age < min_age:
@@ -176,7 +179,7 @@ def compute_location_score(
     if dist is None:
         return 0.3, None, ["Trial locations lack coordinates"]
 
-    radius = profile.preferred_radius_km or 100.0
+    radius = max(profile.preferred_radius_km or 100.0, 0.1)  # Ensure non-zero radius
 
     if dist <= radius * 0.5:
         score = 1.0
@@ -233,6 +236,7 @@ def compute_composite_score(
     scaled down proportionally).
     """
     if ml_score is not None:
+        ml_score = min(max(ml_score, 0.0), 1.0)
         ml_weight = 0.20
         scale = 1.0 - ml_weight
         composite = (
@@ -290,7 +294,8 @@ async def _invoke_sagemaker_matching(
                 "phase": trial_doc.get("phase"),
             },
         }
-        response = runtime.invoke_endpoint(
+        response = await asyncio.to_thread(
+            runtime.invoke_endpoint,
             EndpointName=settings.sagemaker_matching_endpoint,
             ContentType="application/json",
             Body=json.dumps(payload),
@@ -318,6 +323,16 @@ async def match_trials_for_patient(
     4. Combine into composite score, rank, and return top-N.
     """
     os_client = get_opensearch_client()
+
+    # Guard: empty patient profile cannot produce meaningful matches
+    if not profile.conditions:
+        return TrialMatchResponse(
+            patient_id=profile.patient_id,
+            matched_at=datetime.now(timezone.utc),
+            total_evaluated=0,
+            total_matched=0,
+            matches=[],
+        )
 
     # Fetch a broad set of candidates using the patient's conditions
     search_req = TrialSearchRequest(

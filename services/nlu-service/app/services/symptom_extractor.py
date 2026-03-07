@@ -9,13 +9,16 @@ Pipeline:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import time
+import unicodedata
 from typing import Any
 
 import structlog
 
-from app.config import settings
+from app.config import get_settings
 from app.models import (
     BodySystem,
     MedicalEntity,
@@ -65,16 +68,16 @@ class SymptomExtractor:
 
         # Step 1: Comprehend Medical entity extraction (English text only)
         comprehend_entities: list[MedicalEntity] = []
-        if settings.comprehend_medical_enabled:
+        if get_settings().comprehend_medical_enabled:
             english_text = self._normalizer.transliterate_to_english(text, language)
-            comprehend_entities = self._comprehend.detect_entities(english_text)
+            comprehend_entities = await asyncio.to_thread(self._comprehend.detect_entities, english_text)
             logger.info(
                 "comprehend_extraction_done",
                 entity_count=len(comprehend_entities),
             )
 
         # Step 2: Claude-based extraction
-        claude_symptoms = self._extract_via_claude(text, language)
+        claude_symptoms = await asyncio.to_thread(self._extract_via_claude, text, language)
         logger.info(
             "claude_extraction_done",
             symptom_count=len(claude_symptoms),
@@ -102,13 +105,48 @@ class SymptomExtractor:
     # Claude extraction
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _sanitize_user_input(text: str) -> str:
+        """Strip common prompt injection patterns from user input."""
+        # Normalize unicode to catch visually similar characters and strip zero-width chars
+        text = unicodedata.normalize('NFKC', text)
+        text = re.sub(r'[\u200b\u200c\u200d\u200e\u200f\ufeff\u00ad\u2060\u180e]', '', text)
+        # Strip XML/HTML-like tags that could confuse delimiter-based prompts
+        text = re.sub(r'</?(?:system|user|assistant|instruction|prompt)[^>]*>', '', text, flags=re.IGNORECASE)
+        # Remove attempts to break out of delimiters
+        text = text.replace('"""', '')
+        text = text.replace('```', '')
+        # Remove instruction override attempts (English)
+        text = re.sub(
+            r'(?i)(ignore|disregard|forget)\s+(all\s+)?(previous|above|prior)\s+(instructions?|prompts?|rules?)',
+            '[FILTERED]', text
+        )
+        # Remove system prompt manipulation (English)
+        text = re.sub(
+            r'(?i)(you are now|act as|pretend to be|new instructions?:|system prompt:|<\|im_start\|>|<\|im_end\|>)',
+            '[FILTERED]', text
+        )
+        # Hindi prompt injection patterns
+        text = re.sub(
+            r'(पिछले निर्देश|निर्देश बदलो|नए निर्देश|सिस्टम प्रॉम्प्ट|भूमिका बदलो|अब तुम)',
+            '[FILTERED]', text
+        )
+        # Limit length to prevent token stuffing
+        max_len = 10000
+        if len(text) > max_len:
+            original_len = len(text)
+            logger.warning(f"Input truncated from {original_len} to {max_len} characters")
+            text = text[:max_len]
+        return text
+
     def _extract_via_claude(
         self, text: str, language: SupportedLanguage
     ) -> list[Symptom]:
         """Use Claude (via Bedrock) to extract symptoms from text."""
+        sanitized_text = self._sanitize_user_input(text)
         user_message = (
             f"Language: {language.value}\n\n"
-            f"Patient transcript:\n\"\"\"\n{text}\n\"\"\"\n\n"
+            f"Patient transcript:\n<user_input>\n{sanitized_text}\n</user_input>\n\n"
             "Extract all symptoms from the transcript above. Return JSON array only."
         )
 
@@ -118,20 +156,27 @@ class SymptomExtractor:
                 user_message=user_message,
                 temperature=0.05,
             )
-            raw_data = result["data"]
+            raw_data = result.get("data") if isinstance(result, dict) else result
         except Exception:
             logger.exception("claude_symptom_extraction_failed")
+            return []
+
+        if raw_data is None:
+            logger.warning("claude_symptom_extraction_no_data")
             return []
 
         # Parse the raw JSON into Symptom objects
         symptom_list: list[dict[str, Any]] = []
         if isinstance(raw_data, list):
             symptom_list = raw_data
-        elif isinstance(raw_data, dict) and "symptoms" in raw_data:
+        elif isinstance(raw_data, dict) and "symptoms" in raw_data and isinstance(raw_data["symptoms"], list):
             symptom_list = raw_data["symptoms"]
 
         symptoms: list[Symptom] = []
         for item in symptom_list:
+            if not isinstance(item, dict):
+                logger.warning("symptom_parse_error", raw_item=item, reason="not_a_dict")
+                continue
             try:
                 symptom = Symptom(
                     name=item.get("name", "unknown"),
@@ -143,7 +188,7 @@ class SymptomExtractor:
                         item.get("body_system", "unknown")
                     ),
                     icd10_code=item.get("icd10_code"),
-                    confidence=float(item.get("confidence", 0.0)),
+                    confidence=min(max(float(item.get("confidence") or 0.0), 0.0), 1.0),
                     negated=bool(item.get("negated", False)),
                     qualifiers=item.get("qualifiers", []),
                 )
@@ -186,7 +231,9 @@ class SymptomExtractor:
             if entity.entity_type not in symptom_entity_types:
                 continue
 
-            normalized_name = self._normalizer.normalize_term(entity.text)
+            normalized_name = self._normalizer.normalize_term(entity.text) or ""
+            if not normalized_name:
+                continue
             if normalized_name.lower() in claude_names_lower:
                 # Boost confidence for matching symptoms
                 for s in merged:

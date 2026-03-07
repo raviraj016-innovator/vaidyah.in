@@ -7,6 +7,8 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const isProd = process.env.NODE_ENV === 'production';
+
 function requireEnv(key: string, fallback?: string): string {
   const value = process.env[key] ?? fallback;
   if (value === undefined) {
@@ -17,6 +19,12 @@ function requireEnv(key: string, fallback?: string): string {
 
 function optionalEnv(key: string, fallback: string): string {
   return process.env[key] ?? fallback;
+}
+
+/** Requires env var in production, allows fallback in dev. */
+function prodRequireEnv(key: string, devFallback: string): string {
+  if (isProd) return requireEnv(key);
+  return process.env[key] ?? devFallback;
 }
 
 function intEnv(key: string, fallback: number): number {
@@ -41,7 +49,7 @@ export const config = {
 
   /** Database */
   database: {
-    url: requireEnv('DATABASE_URL', 'postgresql://vaidyah:vaidyah_dev_pwd@localhost:5432/vaidyah'),
+    url: prodRequireEnv('DATABASE_URL', 'postgresql://localhost:5432/vaidyah'),
     poolMin: intEnv('DB_POOL_MIN', 2),
     poolMax: intEnv('DB_POOL_MAX', 10),
     idleTimeoutMs: intEnv('DB_IDLE_TIMEOUT_MS', 30000),
@@ -64,7 +72,13 @@ export const config = {
 
   /** JWT fallback for dev */
   jwt: {
-    secret: optionalEnv('JWT_SECRET', 'your-jwt-secret-change-in-production'),
+    secret: (() => {
+      const s = prodRequireEnv('JWT_SECRET', 'dev-secret-do-not-use-in-production');
+      if (isProd && s.length < 32) {
+        throw new Error('JWT_SECRET must be at least 32 characters in production');
+      }
+      return s;
+    })(),
   },
 
   /** Emergency services */
@@ -88,8 +102,18 @@ export const config = {
   limits: {
     maxSymptomsPerCheck: intEnv('MAX_SYMPTOMS_PER_CHECK', 30),
     requestTimeoutMs: intEnv('REQUEST_TIMEOUT_MS', 30000),
-    nluTimeoutMs: intEnv('NLU_TIMEOUT_MS', 60000),
+    nluTimeoutMs: intEnv('NLU_TIMEOUT_MS', 25000),
   },
 } as const;
+
+// Production validation
+if (isProd) {
+  if (!config.cognito.userPoolId) {
+    throw new Error('COGNITO_USER_POOL_ID must be set in production');
+  }
+  if (!config.cognito.clientId) {
+    throw new Error('COGNITO_CLIENT_ID must be set in production');
+  }
+}
 
 export type Config = typeof config;

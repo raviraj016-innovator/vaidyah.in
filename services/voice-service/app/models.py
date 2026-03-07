@@ -7,7 +7,7 @@ transcription, text-to-speech, prosody analysis, and language detection.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 from uuid import UUID, uuid4
@@ -66,7 +66,7 @@ class AudioMetadata(BaseModel):
     duration_seconds: float
     bit_depth: Optional[int] = None
     codec: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("duration_seconds")
     @classmethod
@@ -126,7 +126,7 @@ class TranscriptionResponse(BaseModel):
     medical_terms_detected: list[str] = []
     audio_metadata: Optional[AudioMetadata] = None
     session_id: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class StreamingTranscriptionMessage(BaseModel):
@@ -149,7 +149,7 @@ class StreamingTranscriptionResult(BaseModel):
     medical_terms: list[str] = []
     language_detected: Optional[str] = None
     error: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ class TTSResponse(BaseModel):
     voice_id: str
     characters_synthesized: int
     cached: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +237,7 @@ class ProsodyAnalysisResult(BaseModel):
     duration_seconds: float = 0.0
     audio_metadata: Optional[AudioMetadata] = None
     clinical_notes: list[str] = []
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@ class LanguageDetectionResult(BaseModel):
     all_scores: list[LanguageScore] = []
     detection_source: str = "audio"  # "audio", "text", "combined"
     script_detected: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ class HealthResponse(BaseModel):
     status: str = "healthy"
     service: str = "voice-service"
     version: str = "1.0.0"
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     checks: dict[str, Any] = {}
 
 
@@ -283,4 +283,4 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     request_id: Optional[UUID] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

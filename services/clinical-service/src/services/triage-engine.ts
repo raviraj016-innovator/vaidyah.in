@@ -27,9 +27,12 @@ import {
   TriageLevel,
   Vitals,
   SymptomInput,
-  MedicalHistory,
   ProsodyScores,
 } from '../types';
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // ─── Red Flag Combination Patterns ──────────────────────────────────────────
 // Each pattern: if all required symptoms/signs present, escalate immediately.
@@ -66,7 +69,8 @@ const RED_FLAG_PATTERNS: RedFlagPattern[] = [
     name: 'Respiratory Distress',
     required_symptoms: ['shortness of breath'],
     required_vital_conditions: [
-      (v) => v.spo2 !== undefined && v.spo2 < 92,
+      (v) => (v.spo2 !== undefined && v.spo2 < 92) ||
+             (v.respiratory_rate !== undefined && v.respiratory_rate > 30),
     ],
     severity: 'critical',
     recommendation: 'Immediate oxygen supplementation, nebulization if wheezing. Monitor SpO2 continuously.',
@@ -274,6 +278,25 @@ const VITAL_SCORE_RULES: VitalScoreRule[] = [
     },
   },
   {
+    name: 'Blood Pressure (Diastolic)',
+    max: 15,
+    score: (v) => {
+      if (v.bp_diastolic === undefined) return 0;
+      const dia = v.bp_diastolic;
+      if (dia >= 120) return 15;          // Hypertensive emergency
+      if (dia >= 110) return 12;          // Severe hypertension
+      if (dia >= 100) return 8;           // Stage 2 HTN
+      if (dia >= 90) return 4;            // Stage 1 HTN
+      if (dia <= 40) return 15;           // Severe hypotension / shock
+      if (dia <= 50) return 10;           // Hypotension
+      return 0;
+    },
+    detail: (v) => {
+      if (v.bp_diastolic === undefined) return 'Diastolic BP: not recorded';
+      return `Diastolic BP: ${v.bp_diastolic} mmHg`;
+    },
+  },
+  {
     name: 'Heart Rate / Pulse',
     max: 15,
     score: (v, age) => {
@@ -325,6 +348,15 @@ const VITAL_SCORE_RULES: VitalScoreRule[] = [
         if (rr > 50) return 15;
         if (rr > 40) return 10;
         if (rr < 15) return 12;
+        return 0;
+      }
+      if (age < 12) {
+        // Pediatric 5-12 years: normal RR 18-25
+        if (rr > 40) return 15;
+        if (rr > 30) return 10;
+        if (rr > 25) return 4;
+        if (rr < 12) return 12;
+        if (rr < 15) return 6;
         return 0;
       }
       // Adult thresholds
@@ -488,7 +520,7 @@ export class TriageEngine {
     // Step 3: Symptom severity aggregation
     // ────────────────────────────────────────────────────────────────────
     let symptomScore = 0;
-    const maxSymptomScore = input.symptoms.length * 12; // max per symptom: 6 severity * 2 onset
+    const maxSymptomScore = input.symptoms.length * 24; // max per symptom: 6 severity * 2 onset * 2 frequency
 
     for (const symptom of input.symptoms) {
       const sevWeight = SYMPTOM_SEVERITY_WEIGHT[symptom.severity] ?? 1;
@@ -501,7 +533,7 @@ export class TriageEngine {
       scoringBreakdown.push({
         factor: `Symptom: ${symptom.name}`,
         score: sScore,
-        max_score: 12,
+        max_score: 24,
         source: 'symptoms',
         detail: `${symptom.severity} severity, ${symptom.onset ?? 'unknown'} onset, ${symptom.frequency ?? 'unknown'} frequency`,
       });
@@ -543,14 +575,17 @@ export class TriageEngine {
 
     // Comorbidity multiplier
     let comorbidityMultiplier = 1.0;
-    const matchedConditions: string[] = [];
+    const matchedConditions: Array<{ name: string; risk: number }> = [];
 
     for (const condition of input.medical_history.conditions) {
       const normalizedCondition = condition.toLowerCase().trim();
       for (const [key, risk] of Object.entries(COMORBIDITY_RISK)) {
-        if (normalizedCondition.includes(key)) {
-          comorbidityMultiplier = Math.max(comorbidityMultiplier, risk);
-          matchedConditions.push(`${condition} (risk: ${risk}x)`);
+        const keyRegex = new RegExp(`\\b${escapeRegExp(key)}\\b`);
+        if (normalizedCondition === key || keyRegex.test(normalizedCondition)) {
+          if (risk > comorbidityMultiplier) {
+            comorbidityMultiplier = risk;
+          }
+          matchedConditions.push({ name: condition, risk });
           break;
         }
       }
@@ -561,21 +596,31 @@ export class TriageEngine {
     for (const med of input.medical_history.medications) {
       const normalizedMed = med.toLowerCase();
       for (const hm of highRiskMeds) {
-        if (normalizedMed.includes(hm)) {
-          comorbidityMultiplier = Math.max(comorbidityMultiplier, 1.3);
-          matchedConditions.push(`High-risk medication: ${med}`);
+        const hmRegex = new RegExp(`\\b${escapeRegExp(hm)}\\b`);
+        if (hmRegex.test(normalizedMed)) {
+          if (1.3 > comorbidityMultiplier) {
+            comorbidityMultiplier = 1.3;
+          }
+          matchedConditions.push({ name: `High-risk medication: ${med}`, risk: 1.3 });
           break;
         }
       }
     }
 
+    // Compound comorbidity multiplier: use max, then add diminishing bonus per additional condition
+    if (matchedConditions.length > 1) {
+      const additionalConditions = matchedConditions.length - 1;
+      comorbidityMultiplier = Math.min(2.5, comorbidityMultiplier + 0.1 * additionalConditions);
+    }
+
     if (matchedConditions.length > 0) {
+      const conditionDesc = matchedConditions.map(c => `${c.name} (risk: ${c.risk}x)`).join(', ');
       scoringBreakdown.push({
         factor: 'Comorbidity Risk',
         score: Math.round((comorbidityMultiplier - 1.0) * 10),
-        max_score: 6,
+        max_score: 15,
         source: 'comorbidity',
-        detail: `Conditions: ${matchedConditions.join(', ')}. Multiplier: ${comorbidityMultiplier}x`,
+        detail: `Conditions: ${conditionDesc}. Combined multiplier: ${comorbidityMultiplier.toFixed(2)}x`,
       });
     }
 
@@ -651,9 +696,11 @@ export class TriageEngine {
     const symptomNames = symptoms.map((s) => s.name.toLowerCase().trim());
 
     for (const pattern of RED_FLAG_PATTERNS) {
-      const allSymptomsPresent = pattern.required_symptoms.every((req) =>
-        symptomNames.some((s) => s.includes(req.toLowerCase()))
-      );
+      const allSymptomsPresent = pattern.required_symptoms.every((req) => {
+        const reqLower = req.toLowerCase();
+        const reqRegex = new RegExp(`\\b${escapeRegExp(reqLower)}\\b`);
+        return symptomNames.some((s) => s === reqLower || reqRegex.test(s));
+      });
 
       if (!allSymptomsPresent) continue;
 
@@ -701,7 +748,8 @@ export class TriageEngine {
       const normalizedName = symptom.name.toLowerCase().trim();
 
       for (const [flagName, flagInfo] of Object.entries(INDIVIDUAL_RED_FLAGS)) {
-        if (normalizedName.includes(flagName)) {
+        const flagRegex = new RegExp(`\\b${escapeRegExp(flagName)}\\b`);
+        if (normalizedName === flagName || flagRegex.test(normalizedName)) {
           // Avoid duplicates
           const alreadyFlagged = redFlags.some(
             (rf) => rf.flag.toLowerCase().includes(flagName)

@@ -1,4 +1,5 @@
 import { Pool, PoolConfig, QueryResult, QueryResultRow } from 'pg';
+import { createHash } from 'crypto';
 import config from '../config';
 
 // ─── Connection Pool ────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ function getPoolConfig(): PoolConfig {
   };
 
   if (config.database.ssl) {
-    cfg.ssl = { rejectUnauthorized: false };
+    cfg.ssl = process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: true };
   }
 
   return cfg;
@@ -60,7 +61,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 
     if (durationMs > 1000) {
       console.warn('[DB] Slow query detected', {
-        text: text.slice(0, 200),
+        queryFingerprint: createHash('sha256').update(text).digest('hex').slice(0, 12),
         durationMs,
         rows: result.rowCount,
       });
@@ -70,7 +71,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   } catch (err) {
     const durationMs = Date.now() - start;
     console.error('[DB] Query error', {
-      text: text.slice(0, 200),
+      queryFingerprint: createHash('sha256').update(text).digest('hex').slice(0, 12),
       durationMs,
       error: (err as Error).message,
     });

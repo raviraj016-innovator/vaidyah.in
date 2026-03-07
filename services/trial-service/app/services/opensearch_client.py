@@ -292,12 +292,29 @@ class TrialOpenSearchClient:
     #  Indexing
     # ------------------------------------------------------------------ #
 
-    def index_trial(self, trial: ClinicalTrial) -> None:
-        """Index or update a single trial document."""
-        doc = self._trial_to_doc(trial)
+    def index_trial(self, nct_id: str, trial_data: dict[str, Any]) -> None:
+        """Index or update a single trial document.
+
+        Parameters
+        ----------
+        nct_id:
+            The NCT identifier used as the document ID.
+        trial_data:
+            A JSON-serialisable dict representing the trial.
+        """
+        # Convert location lat/lon to geo_point if not already present
+        doc = dict(trial_data)
+        locations = doc.get("locations", [])
+        for loc in locations:
+            if "geo_point" not in loc:
+                lat = loc.pop("latitude", None)
+                lon = loc.pop("longitude", None)
+                if lat is not None and lon is not None:
+                    loc["geo_point"] = {"lat": lat, "lon": lon}
+
         self._client.index(
             index=self._index,
-            id=trial.nct_id,
+            id=nct_id,
             body=doc,
             refresh="wait_for",
         )
@@ -316,6 +333,21 @@ class TrialOpenSearchClient:
         errors = sum(1 for item in resp.get("items", []) if item.get("index", {}).get("error"))
         return {"indexed": len(trials) - errors, "failed": errors}
 
+    def delete_trial(self, nct_id: str) -> None:
+        """Delete a single trial document from the index by its NCT ID.
+
+        Silently ignores the case where the document does not exist.
+        """
+        try:
+            self._client.delete(
+                index=self._index,
+                id=nct_id,
+                refresh="wait_for",
+            )
+        except Exception:
+            # Document may not exist in the index; log and move on.
+            logger.warning("opensearch_delete_not_found", nct_id=nct_id, exc_info=True)
+
     # ------------------------------------------------------------------ #
     #  Search
     # ------------------------------------------------------------------ #
@@ -330,21 +362,40 @@ class TrialOpenSearchClient:
         # --- Free-text query with field boosting ---
         if request.query:
             must_clauses.append({
-                "multi_match": {
-                    "query": request.query,
-                    "fields": [
-                        "title^3",
-                        "brief_title^2.5",
-                        "conditions^2",
-                        "brief_summary^1.5",
-                        "detailed_description",
-                        "keywords^1.5",
-                        "mesh_terms^1.5",
-                        "interventions.name^1.5",
+                "bool": {
+                    "should": [
+                        {
+                            "multi_match": {
+                                "query": request.query,
+                                "fields": [
+                                    "title^3",
+                                    "brief_title^2.5",
+                                    "conditions^2",
+                                    "brief_summary^1.5",
+                                    "detailed_description",
+                                    "keywords^1.5",
+                                    "mesh_terms^1.5",
+                                ],
+                                "type": "best_fields",
+                                "fuzziness": "AUTO",
+                                "prefix_length": 2,
+                            },
+                        },
+                        {
+                            "nested": {
+                                "path": "interventions",
+                                "query": {
+                                    "match": {
+                                        "interventions.name": {
+                                            "query": request.query,
+                                            "boost": 1.5,
+                                        },
+                                    },
+                                },
+                            },
+                        },
                     ],
-                    "type": "best_fields",
-                    "fuzziness": "AUTO",
-                    "prefix_length": 2,
+                    "minimum_should_match": 1,
                 },
             })
 
@@ -591,6 +642,7 @@ class TrialOpenSearchClient:
 
     def get_distinct_conditions(self, prefix: Optional[str] = None, size: int = 100) -> list[str]:
         """Return distinct condition values, optionally filtered by prefix."""
+        size = max(1, min(size, 500))  # Clamp size to prevent excessive aggregation
         agg_body: dict[str, Any] = {
             "size": 0,
             "aggs": {
@@ -600,9 +652,12 @@ class TrialOpenSearchClient:
             },
         }
         if prefix:
-            agg_body["query"] = {
-                "prefix": {"conditions.keyword": {"value": prefix, "case_insensitive": True}},
-            }
+            # Sanitize prefix: strip whitespace, limit length, remove wildcard chars
+            sanitized = prefix.strip()[:200].replace("*", "").replace("?", "")
+            if sanitized:
+                agg_body["query"] = {
+                    "prefix": {"conditions.keyword": {"value": sanitized, "case_insensitive": True}},
+                }
 
         resp = self._client.search(index=self._index, body=agg_body)
         buckets = resp.get("aggregations", {}).get("unique_conditions", {}).get("buckets", [])

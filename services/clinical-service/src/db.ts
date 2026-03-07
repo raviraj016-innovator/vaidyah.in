@@ -3,6 +3,7 @@
  * Uses pg Pool with typed query support.
  */
 
+import { createHash } from 'crypto';
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { config } from './config';
 
@@ -14,12 +15,17 @@ let pool: Pool | null = null;
  */
 export function getPool(): Pool {
   if (!pool) {
+    const sslConfig = config.isProd
+      ? { ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: true } as const }
+      : {};
+
     pool = new Pool({
       connectionString: config.database.url,
       min: config.database.poolMin,
       max: config.database.poolMax,
       idleTimeoutMillis: config.database.idleTimeoutMs,
       connectionTimeoutMillis: config.database.connectionTimeoutMs,
+      ...sslConfig,
     });
 
     pool.on('error', (err: Error) => {
@@ -47,7 +53,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 
   if (config.isDev) {
     console.log('[DB] Query executed', {
-      text: text.substring(0, 100),
+      queryFingerprint: createHash('sha256').update(text).digest('hex').slice(0, 12),
       rows: result.rowCount,
       duration_ms: duration,
     });
@@ -99,7 +105,11 @@ export async function withTransaction<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('[DB] ROLLBACK failed:', rollbackErr);
+    }
     throw err;
   } finally {
     client.release();

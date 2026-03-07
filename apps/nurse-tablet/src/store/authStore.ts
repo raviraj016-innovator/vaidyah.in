@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
-import apiClient, { ENDPOINTS, storeTokens, clearTokens } from '../config/api';
+import axios from 'axios';
+import apiClient, { ENDPOINTS, storeTokens, clearTokens, API_BASE_URL } from '../config/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,6 +54,19 @@ export interface AuthState {
   setSelectedCenter: (center: HealthCenter) => void;
   setLanguage: (lang: string) => void;
   clearError: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Token helpers
+// ---------------------------------------------------------------------------
+
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return typeof payload.exp === 'number' && payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,10 +145,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         error: null,
       });
     } catch (err: any) {
+      const status = err.response?.status;
       const message =
-        err.response?.data?.message ??
-        err.message ??
-        'Login failed. Please check your credentials.';
+        status === 401 ? 'Invalid credentials. Please try again.' :
+        status === 429 ? 'Too many attempts. Please try again later.' :
+        'Login failed. Please try again.';
       set({ error: message, isLoading: false });
     }
   },
@@ -172,8 +187,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         error: null,
       });
     } catch (err: any) {
+      const status = err.response?.status;
       const message =
-        err.response?.data?.message ?? err.message ?? 'Invalid MFA code. Please try again.';
+        status === 401 ? 'Invalid MFA code. Please try again.' :
+        status === 429 ? 'Too many attempts. Please try again later.' :
+        'Verification failed. Please try again.';
       set({ error: message, isLoading: false });
     }
   },
@@ -212,7 +230,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const currentRefresh = await SecureStore.getItemAsync('vaidyah_refresh_token');
       if (!currentRefresh) throw new Error('No refresh token');
 
-      const { data } = await apiClient.post(ENDPOINTS.AUTH_REFRESH, {
+      const { data } = await axios.post(`${API_BASE_URL}${ENDPOINTS.AUTH_REFRESH}`, {
         refreshToken: currentRefresh,
       });
 
@@ -232,14 +250,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   loadStoredAuth: async () => {
     set({ isLoading: true });
     try {
-      const [token, user] = await Promise.all([
+      const [token, refreshToken, user] = await Promise.all([
         SecureStore.getItemAsync('vaidyah_auth_token'),
+        SecureStore.getItemAsync('vaidyah_refresh_token'),
         loadUser(),
       ]);
 
       if (token && user) {
+        if (isTokenExpired(token)) {
+          // Token expired — try refresh
+          if (refreshToken && !isTokenExpired(refreshToken)) {
+            try {
+              await get().refreshTokens();
+              const newToken = await SecureStore.getItemAsync('vaidyah_auth_token');
+              if (newToken && !isTokenExpired(newToken)) {
+                set({ token: newToken, user, isAuthenticated: true, isLoading: false });
+                return;
+              }
+            } catch {
+              // Refresh failed
+            }
+          }
+          // Both expired — force logout
+          await clearTokens();
+          await clearUser();
+          set({ isLoading: false });
+          return;
+        }
         set({
           token,
+          refreshToken,
           user,
           isAuthenticated: true,
           isLoading: false,

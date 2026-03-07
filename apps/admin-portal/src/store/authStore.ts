@@ -84,6 +84,7 @@ interface AuthState {
   refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  _hasHydrated: boolean;
 
   // Actions
   setUser: (user: AdminUser) => void;
@@ -110,18 +111,15 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       isAuthenticated: false,
       isLoading: false,
+      _hasHydrated: false,
 
       setUser: (user) => set({ user }),
 
       setTokens: (token, refreshToken) => {
-        localStorage.setItem('vaidyah_admin_token', token);
-        localStorage.setItem('vaidyah_admin_refresh', refreshToken);
         set({ token, refreshToken });
       },
 
       login: (user, token, refreshToken) => {
-        localStorage.setItem('vaidyah_admin_token', token);
-        localStorage.setItem('vaidyah_admin_refresh', refreshToken);
         set({
           user,
           token,
@@ -132,8 +130,6 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        localStorage.removeItem('vaidyah_admin_token');
-        localStorage.removeItem('vaidyah_admin_refresh');
         set({
           user: null,
           token: null,
@@ -175,11 +171,17 @@ export const useAuthStore = create<AuthState>()(
       name: 'vaidyah-admin-auth',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        user: state.user,
+        // Persist tokens, auth state, and user so sessions survive page reloads.
         token: state.token,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
+        user: state.user,
       }),
+      onRehydrateStorage: () => {
+        return () => {
+          useAuthStore.setState({ _hasHydrated: true });
+        };
+      },
     },
   ),
 );

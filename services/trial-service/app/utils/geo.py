@@ -68,8 +68,8 @@ def closest_location_distance(
     """
     min_dist: Optional[float] = None
     for loc in locations:
-        loc_lat = loc.get("latitude")
-        loc_lon = loc.get("longitude")
+        loc_lat = loc.get("latitude") or (loc.get("geo_point") or {}).get("lat")
+        loc_lon = loc.get("longitude") or (loc.get("geo_point") or {}).get("lon")
         if loc_lat is None or loc_lon is None:
             continue
         dist = haversine_distance(patient_lat, patient_lon, loc_lat, loc_lon)
@@ -93,8 +93,11 @@ def bounding_box(
     (min_lat, max_lat, min_lon, max_lon) in decimal degrees.
     """
     delta_lat = math.degrees(radius_km / _EARTH_RADIUS_KM)
+    cos_lat = math.cos(math.radians(lat))
+    if abs(cos_lat) < 1e-10:
+        cos_lat = 1e-10  # Avoid division by zero at poles
     delta_lon = math.degrees(
-        radius_km / (_EARTH_RADIUS_KM * math.cos(math.radians(lat)))
+        radius_km / (_EARTH_RADIUS_KM * cos_lat)
     )
     return (
         lat - delta_lat,

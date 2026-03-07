@@ -479,7 +479,7 @@ export const WhatsAppTemplateSendSchema = z.object({
 
 export interface AuthenticatedUser {
   userId: string;
-  role: 'doctor' | 'patient' | 'admin' | 'system';
+  role: 'doctor' | 'nurse' | 'patient' | 'admin' | 'system';
   permissions: string[];
 }
 

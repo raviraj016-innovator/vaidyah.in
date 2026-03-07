@@ -38,6 +38,18 @@ variable "enable_nat_gateway" {
   default     = true
 }
 
+variable "single_nat_gateway" {
+  description = "Use a single NAT gateway for all AZs (cost savings for dev/staging). Set to false for production HA."
+  type        = bool
+  default     = true
+}
+
+variable "kms_key_arn" {
+  description = "KMS key ARN for encrypting the VPC flow logs CloudWatch log group"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)

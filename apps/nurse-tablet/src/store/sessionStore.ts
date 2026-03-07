@@ -240,7 +240,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } catch (err: any) {
       // Fallback: create local session for offline
       const offlineSession: ConsultationSession = {
-        id: `offline_${Date.now()}`,
+        id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         patientId: patient.id,
         nurseId: 'current',
         centerId: 'current',
@@ -273,8 +273,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   completeSession: async () => {
-    const { currentSession } = get();
-    if (!currentSession) return;
+    const { currentSession, isProcessing } = get();
+    if (!currentSession || isProcessing) return;
 
     set({ isProcessing: true });
     try {
@@ -288,16 +288,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isRecording: false,
         isProcessing: false,
       });
-    } catch {
-      set({
-        currentSession: {
-          ...currentSession,
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-        },
-        isRecording: false,
-        isProcessing: false,
-      });
+    } catch (err) {
+      set({ isProcessing: false });
+      throw err; // Don't mark completed on failure — let caller handle
     }
   },
 
@@ -346,14 +339,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setVitals: (vitals) => set({ vitals }),
   submitVitals: async () => {
     const { currentSession, vitals } = get();
-    if (!currentSession || !vitals) return;
+    if (!currentSession || !vitals) {
+      throw new Error('Session or vitals data missing');
+    }
 
     set({ isProcessing: true });
     try {
       await apiClient.post(ENDPOINTS.VITALS_SUBMIT(currentSession.id), vitals);
       set({ isProcessing: false });
-    } catch {
+    } catch (err) {
       set({ isProcessing: false });
+      throw err; // Re-throw so callers (VitalsEntryScreen) can handle the failure
     }
   },
 
@@ -408,7 +404,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // ------------------------------------------------------------------
   generateSoapNote: async () => {
     const { currentSession, symptoms, vitals, transcriptions, triageResult } = get();
-    if (!currentSession) return;
+    if (!currentSession) {
+      throw new Error('No active session');
+    }
 
     set({ isGeneratingSoap: true, error: null });
     try {
@@ -436,6 +434,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         error: err.response?.data?.message ?? 'SOAP note generation failed',
         isGeneratingSoap: false,
       });
+      throw err;
     }
   },
 
@@ -446,19 +445,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   finalizeSoapNote: async () => {
     const { currentSession, soapNote } = get();
-    if (!currentSession || !soapNote) return;
+    if (!currentSession || !soapNote) {
+      throw new Error('Session or SOAP note not found');
+    }
 
     set({ isProcessing: true });
     try {
-      await apiClient.post(ENDPOINTS.SESSION_UPDATE(currentSession.id), {
+      await apiClient.put(ENDPOINTS.SESSION_UPDATE(currentSession.id), {
         soapNote: { ...soapNote, status: 'finalized' },
       });
       set({
         soapNote: { ...soapNote, status: 'finalized' },
         isProcessing: false,
       });
-    } catch {
+    } catch (err) {
       set({ isProcessing: false });
+      throw err; // Re-throw so SOAPSummaryScreen try/catch can handle the failure
     }
   },
 

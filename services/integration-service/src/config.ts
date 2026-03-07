@@ -3,8 +3,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 function requireEnv(key: string, defaultValue?: string): string {
-  const value = process.env[key] ?? defaultValue;
-  if (value === undefined) {
+  const value = process.env[key] || defaultValue;
+  if (!value) {
     throw new Error(`Missing required environment variable: ${key}`);
   }
   return value;
@@ -24,13 +24,24 @@ function optionalIntEnv(key: string, defaultValue: number): number {
   return parsed;
 }
 
+const isProd = process.env.NODE_ENV === 'production';
+
+function prodRequireEnv(key: string, devFallback: string): string {
+  if (isProd) {
+    const v = process.env[key];
+    if (!v) throw new Error('Missing required env var: ' + key);
+    return v;
+  }
+  return process.env[key] ?? devFallback;
+}
+
 export const config = {
   // ─── Server ──────────────────────────────────────────────────────────────
   server: {
     port: optionalIntEnv('PORT', 3002),
     host: optionalEnv('HOST', '0.0.0.0'),
     nodeEnv: optionalEnv('NODE_ENV', 'development'),
-    corsOrigins: optionalEnv('CORS_ORIGINS', '*').split(','),
+    corsOrigins: optionalEnv('CORS_ORIGINS', 'http://localhost:3000').split(',').map(s => s.trim()),
     serviceName: 'integration-service',
   },
 
@@ -40,11 +51,17 @@ export const config = {
     port: optionalIntEnv('DB_PORT', 5432),
     name: requireEnv('DB_NAME', 'vaidyah_integration'),
     user: requireEnv('DB_USER', 'vaidyah'),
-    password: requireEnv('DB_PASSWORD', 'vaidyah_dev'),
+    password: (() => {
+      const pw = prodRequireEnv('DB_PASSWORD', 'vaidyah_dev');
+      if (!isProd && pw === 'vaidyah_dev') {
+        console.warn('[Config] WARNING: Using default dev database password. Set DB_PASSWORD in environment.');
+      }
+      return pw;
+    })(),
     maxPoolSize: optionalIntEnv('DB_POOL_SIZE', 20),
     idleTimeout: optionalIntEnv('DB_IDLE_TIMEOUT', 30000),
     connectionTimeout: optionalIntEnv('DB_CONNECTION_TIMEOUT', 5000),
-    ssl: optionalEnv('DB_SSL', 'false') === 'true',
+    ssl: isProd || optionalEnv('DB_SSL', 'false') === 'true',
   },
 
   // ─── Redis ───────────────────────────────────────────────────────────────
@@ -56,11 +73,23 @@ export const config = {
     keyPrefix: 'vaidyah:integration:',
   },
 
-  // ─── JWT ─────────────────────────────────────────────────────────────────
+  // ─── Cognito ────────────────────────────────────────────────────────────
+  cognito: {
+    userPoolId: prodRequireEnv('COGNITO_USER_POOL_ID', 'us-east-1_devPool'),
+    clientId: prodRequireEnv('COGNITO_CLIENT_ID', 'dev-client-id'),
+    region: optionalEnv('AWS_REGION', 'ap-south-1'),
+  },
+
+  // ─── JWT (dev fallback) ───────────────────────────────────────────────
   jwt: {
-    secret: requireEnv('JWT_SECRET', 'vaidyah-dev-jwt-secret-change-in-production'),
+    secret: optionalEnv('JWT_SECRET', 'dev-secret-change-in-production'),
     issuer: optionalEnv('JWT_ISSUER', 'vaidyah-api-gateway'),
     audience: optionalEnv('JWT_AUDIENCE', 'vaidyah-services'),
+  },
+
+  // ─── Encryption ───────────────────────────────────────────────────────
+  encryption: {
+    key: prodRequireEnv('ENCRYPTION_KEY', 'dev-encryption-key-change-in-prod'),
   },
 
   // ─── ABDM (Ayushman Bharat Digital Mission) ──────────────────────────────
@@ -74,7 +103,13 @@ export const config = {
 
     // Credentials
     clientId: requireEnv('ABDM_CLIENT_ID', 'SBX_004567'),
-    clientSecret: requireEnv('ABDM_CLIENT_SECRET', 'sandbox-secret-change-in-prod'),
+    clientSecret: (() => {
+      const secret = prodRequireEnv('ABDM_CLIENT_SECRET', 'sandbox-secret-change-in-prod');
+      if (!isProd && secret === 'sandbox-secret-change-in-prod') {
+        console.warn('[Config] WARNING: Using default ABDM client secret. Set ABDM_CLIENT_SECRET in environment.');
+      }
+      return secret;
+    })(),
 
     // HIP (Health Information Provider) details
     hipId: requireEnv('ABDM_HIP_ID', 'vaidyah-hip-001'),
@@ -97,11 +132,11 @@ export const config = {
   // ─── WhatsApp Business API ───────────────────────────────────────────────
   whatsapp: {
     apiUrl: optionalEnv('WHATSAPP_API_URL', 'https://graph.facebook.com/v18.0'),
-    phoneNumberId: requireEnv('WHATSAPP_PHONE_NUMBER_ID', 'sandbox-phone-number-id'),
-    businessAccountId: requireEnv('WHATSAPP_BUSINESS_ACCOUNT_ID', 'sandbox-business-account-id'),
-    accessToken: requireEnv('WHATSAPP_ACCESS_TOKEN', 'sandbox-access-token'),
-    webhookVerifyToken: requireEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN', 'vaidyah-webhook-verify-token'),
-    appSecret: requireEnv('WHATSAPP_APP_SECRET', 'sandbox-app-secret'),
+    phoneNumberId: prodRequireEnv('WHATSAPP_PHONE_NUMBER_ID', 'sandbox-phone-number-id'),
+    businessAccountId: prodRequireEnv('WHATSAPP_BUSINESS_ACCOUNT_ID', 'sandbox-business-account-id'),
+    accessToken: prodRequireEnv('WHATSAPP_ACCESS_TOKEN', 'sandbox-access-token'),
+    webhookVerifyToken: prodRequireEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN', 'vaidyah-webhook-verify-token'),
+    appSecret: prodRequireEnv('WHATSAPP_APP_SECRET', 'sandbox-app-secret'),
 
     // Rate limiting
     messagesPerSecond: optionalIntEnv('WHATSAPP_RATE_LIMIT', 80),
@@ -123,8 +158,8 @@ export const config = {
     },
     googleFit: {
       apiUrl: optionalEnv('GOOGLE_FIT_API_URL', 'https://www.googleapis.com/fitness/v1'),
-      clientId: requireEnv('GOOGLE_FIT_CLIENT_ID', 'google-fit-sandbox-client-id'),
-      clientSecret: requireEnv('GOOGLE_FIT_CLIENT_SECRET', 'google-fit-sandbox-client-secret'),
+      clientId: prodRequireEnv('GOOGLE_FIT_CLIENT_ID', 'google-fit-sandbox-client-id'),
+      clientSecret: prodRequireEnv('GOOGLE_FIT_CLIENT_SECRET', 'google-fit-sandbox-client-secret'),
       tokenUrl: optionalEnv('GOOGLE_FIT_TOKEN_URL', 'https://oauth2.googleapis.com/token'),
     },
     // Sync configuration

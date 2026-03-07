@@ -105,7 +105,7 @@ export function errorHandler(
   if (err instanceof AppError && err.isOperational) {
     console.error(`[ERROR] ${err.statusCode} - ${err.message}`);
   } else {
-    console.error('[ERROR] Unhandled error:', err);
+    console.error('[ERROR] Unhandled error:', (err as Error).message);
   }
 
   // Handle Zod validation errors
@@ -127,10 +127,6 @@ export function errorHandler(
       error: err.message,
       timestamp: new Date().toISOString(),
     };
-
-    if (err.details) {
-      response.data = err.details;
-    }
 
     if (err instanceof RateLimitError) {
       res.setHeader('Retry-After', err.retryAfter.toString());
@@ -154,10 +150,7 @@ export function errorHandler(
   // Generic unhandled error
   const response: ServiceResponse = {
     success: false,
-    error:
-      process.env.NODE_ENV === 'production'
-        ? 'Internal server error'
-        : err.message || 'Internal server error',
+    error: 'Internal server error',
     timestamp: new Date().toISOString(),
   };
 
@@ -167,10 +160,10 @@ export function errorHandler(
 /**
  * 404 handler for unknown routes.
  */
-export function notFoundHandler(req: Request, res: Response): void {
+export function notFoundHandler(_req: Request, res: Response): void {
   const response: ServiceResponse = {
     success: false,
-    error: `Route ${req.method} ${req.path} not found`,
+    error: 'Not found',
     timestamp: new Date().toISOString(),
   };
   res.status(404).json(response);

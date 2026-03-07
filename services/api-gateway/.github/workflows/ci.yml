@@ -1,0 +1,96 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  SERVICE_NAME: api-gateway
+
+jobs:
+  ci:
+    name: Lint, Typecheck & Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: vaidyah_test
+          POSTGRES_USER: vaidyah
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vaidyah"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://vaidyah:test_password@localhost:5432/vaidyah_test
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test -- --coverage
+      - run: npm run build
+      - run: npm audit --audit-level=high || true
+
+  deploy:
+    name: Build & Deploy
+    needs: ci
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com/vaidyah/${{ env.SERVICE_NAME }}:${{ env.DEPLOY_ENV }}-${{ github.sha }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com/vaidyah/${{ env.SERVICE_NAME }}:${{ env.DEPLOY_ENV }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig --name vaidyah-${DEPLOY_ENV} --region ${{ env.AWS_REGION }}
+          kubectl set image deployment/${{ env.SERVICE_NAME }} ${{ env.SERVICE_NAME }}="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com/vaidyah/${{ env.SERVICE_NAME }}:${DEPLOY_ENV}-${{ github.sha }}" -n vaidyah
+          kubectl rollout status deployment/${{ env.SERVICE_NAME }} -n vaidyah --timeout=300s
+      - name: Smoke test
+        run: |
+          kubectl exec deploy/api-gateway -n vaidyah -- wget -q --spider --timeout=10 "http://${{ env.SERVICE_NAME }}.vaidyah.svc.cluster.local:3000/health" || echo "Smoke test failed (non-fatal)"

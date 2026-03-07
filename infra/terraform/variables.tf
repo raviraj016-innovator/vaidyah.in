@@ -158,6 +158,15 @@ variable "opensearch_engine_version" {
   default     = "OpenSearch_2.11"
 }
 
+# ── ElastiCache (Redis) ──────────────────────────────────────────────────────
+
+variable "redis_auth_token" {
+  description = "Auth token for Redis (must be 16-128 chars, transit encryption required)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # ── API Gateway ──────────────────────────────────────────────────────────────
 
 variable "api_gateway_stage_names" {

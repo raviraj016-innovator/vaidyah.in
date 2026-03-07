@@ -1,0 +1,326 @@
+name: CD
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      services:
+        description: "Services to deploy (comma-separated, or 'all')"
+        required: false
+        default: all
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+  deployments: write
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+  EKS_CLUSTER: vaidyah-${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || 'staging') }}
+
+jobs:
+  resolve-env:
+    name: Resolve Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    steps:
+      - id: env
+        env:
+          INPUT_ENV: ${{ github.event.inputs.environment }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ ! "$INPUT_ENV" =~ ^(dev|staging|prod)$ ]]; then
+              echo "::error::Invalid environment"
+              exit 1
+            fi
+            echo "environment=${INPUT_ENV}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      api-gateway: ${{ steps.filter.outputs.api-gateway }}
+      clinical-service: ${{ steps.filter.outputs.clinical-service }}
+      integration-service: ${{ steps.filter.outputs.integration-service }}
+      voice-service: ${{ steps.filter.outputs.voice-service }}
+      nlu-service: ${{ steps.filter.outputs.nlu-service }}
+      trial-service: ${{ steps.filter.outputs.trial-service }}
+      admin-portal: ${{ steps.filter.outputs.admin-portal }}
+      services-matrix: ${{ steps.matrix.outputs.matrix }}
+      has-changes: ${{ steps.matrix.outputs.has-changes }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            api-gateway:
+              - 'services/api-gateway/**'
+              - 'packages/shared-types/**'
+            clinical-service:
+              - 'services/clinical-service/**'
+              - 'packages/shared-types/**'
+              - 'packages/medical-ontology/**'
+            integration-service:
+              - 'services/integration-service/**'
+              - 'packages/shared-types/**'
+            voice-service:
+              - 'services/voice-service/**'
+            nlu-service:
+              - 'services/nlu-service/**'
+            trial-service:
+              - 'services/trial-service/**'
+              - 'packages/medical-ontology/**'
+            admin-portal:
+              - 'apps/admin-portal/**'
+              - 'packages/shared-types/**'
+
+      - id: matrix
+        run: |
+          SERVICES=()
+          MANUAL_SERVICES="${{ github.event.inputs.services }}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$MANUAL_SERVICES" == "all" ]]; then
+            SERVICES=("api-gateway" "clinical-service" "integration-service" "voice-service" "nlu-service" "trial-service" "admin-portal")
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "$MANUAL_SERVICES" ]]; then
+            IFS=',' read -ra SERVICES <<< "$MANUAL_SERVICES"
+          else
+            for svc in api-gateway clinical-service integration-service voice-service nlu-service trial-service admin-portal; do
+              key=$(echo "$svc" | tr '-' '_')
+              if [[ "${{ steps.filter.outputs[format('{0}', svc)] }}" == "true" ]]; then
+                SERVICES+=("$svc")
+              fi
+            done
+          fi
+
+          if [[ ${#SERVICES[@]} -eq 0 ]]; then
+            echo "has-changes=false" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"service\":[]}" >> "$GITHUB_OUTPUT"
+          else
+            JSON=$(printf '%s\n' "${SERVICES[@]}" | jq -R . | jq -sc '{service: .}')
+            echo "has-changes=true" >> "$GITHUB_OUTPUT"
+            echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    name: Build ${{ matrix.service }}
+    needs: [resolve-env, detect-changes]
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.services-matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+        id: ecr-login
+
+      - name: Resolve build context
+        id: ctx
+        run: |
+          SVC="${{ matrix.service }}"
+          if [[ "$SVC" == "admin-portal" ]]; then
+            echo "path=apps/$SVC" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=services/$SVC" >> "$GITHUB_OUTPUT"
+          fi
+          echo "repo=vaidyah/$SVC" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        id: meta
+        with:
+          images: ${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.repo }}
+          tags: |
+            type=sha,prefix=${{ needs.resolve-env.outputs.environment }}-
+            type=raw,value=${{ needs.resolve-env.outputs.environment }}-latest
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ steps.ctx.outputs.path }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          provenance: false
+
+  deploy:
+    name: Deploy to ${{ needs.resolve-env.outputs.environment }}
+    needs: [resolve-env, detect-changes, build-and-push]
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.resolve-env.outputs.environment == 'prod' && 'production' || needs.resolve-env.outputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.services-matrix) }}
+    env:
+      DEPLOY_ENV: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Verify prod deploy source
+        if: env.DEPLOY_ENV == 'prod'
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "::error::Production deployments only allowed from main branch"
+            exit 1
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name vaidyah-${DEPLOY_ENV} --region ${{ env.AWS_REGION }}
+
+      - name: Resolve image context
+        id: ctx
+        run: |
+          SVC="${{ matrix.service }}"
+          if [[ "$SVC" == "admin-portal" ]]; then
+            echo "repo=vaidyah/$SVC" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo=vaidyah/$SVC" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to EKS
+        run: |
+          IMAGE="${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.repo }}:${DEPLOY_ENV}-${GITHUB_SHA::7}"
+          NAMESPACE="vaidyah"
+
+          kubectl set image deployment/${{ matrix.service }} \
+            ${{ matrix.service }}="$IMAGE" \
+            -n "$NAMESPACE"
+
+          kubectl rollout status deployment/${{ matrix.service }} \
+            -n "$NAMESPACE" \
+            --timeout=300s
+
+  smoke-test:
+    name: Smoke Test (${{ needs.resolve-env.outputs.environment }})
+    needs: [resolve-env, detect-changes, deploy]
+    if: needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_ENV: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name vaidyah-${DEPLOY_ENV} --region ${{ env.AWS_REGION }}
+
+      - name: Get ingress endpoint
+        id: endpoint
+        run: |
+          NAMESPACE="vaidyah"
+          ENDPOINT=$(kubectl get ingress vaidyah-ingress -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [[ -z "$ENDPOINT" ]]; then
+            ENDPOINT=$(kubectl get svc api-gateway -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          fi
+          echo "url=http://$ENDPOINT" >> "$GITHUB_OUTPUT"
+
+      - name: Health checks
+        run: |
+          SERVICES_JSON='${{ needs.detect-changes.outputs.services-matrix }}'
+          SERVICES=$(echo "$SERVICES_JSON" | jq -r '.service[]')
+          FAILED=0
+
+          declare -A PORT_MAP
+          PORT_MAP[api-gateway]=3000
+          PORT_MAP[clinical-service]=3001
+          PORT_MAP[integration-service]=3002
+          PORT_MAP[voice-service]=8001
+          PORT_MAP[nlu-service]=8002
+          PORT_MAP[trial-service]=8003
+          PORT_MAP[admin-portal]=80
+
+          NAMESPACE="vaidyah"
+
+          for svc in $SERVICES; do
+            PORT=${PORT_MAP[$svc]:-80}
+            echo "Checking $svc on port $PORT..."
+            if kubectl exec deploy/api-gateway -n "$NAMESPACE" -- \
+              wget -q --spider --timeout=10 "http://${svc}.${NAMESPACE}.svc.cluster.local:${PORT}/health" 2>/dev/null; then
+              echo "  $svc: healthy"
+            else
+              echo "  $svc: FAILED"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          if [[ $FAILED -gt 0 ]]; then
+            echo "::error::$FAILED service(s) failed health check"
+            exit 1
+          fi
+
+  notify:
+    name: Slack Notification
+    needs: [resolve-env, detect-changes, build-and-push, deploy, smoke-test]
+    if: always() && needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          if [[ "${{ needs.smoke-test.result }}" == "success" ]]; then
+            echo "emoji=:white_check_mark:" >> "$GITHUB_OUTPUT"
+            echo "text=succeeded" >> "$GITHUB_OUTPUT"
+            echo "color=good" >> "$GITHUB_OUTPUT"
+          else
+            echo "emoji=:x:" >> "$GITHUB_OUTPUT"
+            echo "text=failed" >> "$GITHUB_OUTPUT"
+            echo "color=danger" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "${{ steps.status.outputs.emoji }} Vaidyah deployment to *${{ needs.resolve-env.outputs.environment }}* ${{ steps.status.outputs.text }}\n*Branch:* `${{ github.ref_name }}`\n*Commit:* `${{ github.sha }}`\n*Actor:* ${{ github.actor }}\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }

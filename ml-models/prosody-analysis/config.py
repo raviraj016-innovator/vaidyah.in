@@ -207,7 +207,7 @@ class ClinicalThresholds:
             "mild": (0.2, 0.4),
             "moderate": (0.4, 0.6),
             "severe": (0.6, 0.8),
-            "critical": (0.8, 1.0),
+            "critical": (0.8, 1.01),
         }
     )
     pain: Dict[str, Tuple[float, float]] = field(
@@ -216,7 +216,7 @@ class ClinicalThresholds:
             "mild": (0.15, 0.35),
             "moderate": (0.35, 0.55),
             "severe": (0.55, 0.75),
-            "critical": (0.75, 1.0),
+            "critical": (0.75, 1.01),
         }
     )
     anxiety: Dict[str, Tuple[float, float]] = field(
@@ -225,16 +225,23 @@ class ClinicalThresholds:
             "mild": (0.2, 0.4),
             "moderate": (0.4, 0.6),
             "severe": (0.6, 0.8),
-            "critical": (0.8, 1.0),
+            "critical": (0.8, 1.01),
         }
     )
 
     def get_severity(self, dimension: str, score: float) -> str:
         """Get severity label for a given dimension and score."""
         thresholds = getattr(self, dimension)
-        for level, (low, high) in thresholds.items():
-            if low <= score < high:
-                return level
+        items = list(thresholds.items())
+        for i, (level, (low, high)) in enumerate(items):
+            # Bug 10 fix: use <= for the upper bound of the last range so
+            # that a score of exactly 1.0 is captured instead of falling through.
+            if i == len(items) - 1:
+                if low <= score <= high:
+                    return level
+            else:
+                if low <= score < high:
+                    return level
         return "critical" if score >= 0.8 else "none"
 
 

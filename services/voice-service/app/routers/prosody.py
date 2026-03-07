@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import uuid
 
+from functools import lru_cache
+
 import structlog
 from fastapi import (
     APIRouter,
@@ -34,10 +36,9 @@ logger = structlog.get_logger("voice.prosody")
 router = APIRouter()
 
 
-def _get_prosody_service(
-    settings: Settings = Depends(get_settings),
-) -> ProsodyAnalyzerService:
-    return ProsodyAnalyzerService(settings)
+@lru_cache(maxsize=1)
+def _get_prosody_service() -> ProsodyAnalyzerService:
+    return ProsodyAnalyzerService(get_settings())
 
 
 # ---------------------------------------------------------------------------
@@ -65,12 +66,23 @@ async def analyze_prosody(
     request_id = uuid.uuid4()
     log = logger.bind(request_id=str(request_id), filename=file.filename)
 
-    # --- Read & validate ---
-    contents = await file.read()
-    if len(contents) > settings.max_audio_file_size_bytes:
+    # --- Read & validate (chunked read to avoid memory exhaustion) ---
+    chunks = []
+    total = 0
+    while chunk := await file.read(8192):
+        total += len(chunk)
+        if total > settings.max_audio_file_size_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File exceeds maximum size of {settings.max_audio_file_size_mb} MB",
+            )
+        chunks.append(chunk)
+    contents = b"".join(chunks)
+
+    if len(contents) == 0:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds maximum size of {settings.max_audio_file_size_mb} MB",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Empty audio file",
         )
 
     file_ext = (file.filename or "audio.wav").rsplit(".", 1)[-1].lower()
@@ -95,7 +107,7 @@ async def analyze_prosody(
         log.error("prosody.audio_normalize_failed", error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Could not process audio file: {exc}",
+            detail="Could not process audio file. Please check the format and try again.",
         )
 
     # --- Analyse prosody ---

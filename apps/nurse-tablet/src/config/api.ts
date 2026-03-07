@@ -1,10 +1,11 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { useAuthStore } from '../store/authStore';
 
 // ---------------------------------------------------------------------------
 // Environment / base URL
 // ---------------------------------------------------------------------------
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://api.vaidyah.health/v1';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080/v1';
 const WS_BASE_URL = process.env.EXPO_PUBLIC_WS_URL ?? 'wss://ws.vaidyah.health/v1';
 
 // ---------------------------------------------------------------------------
@@ -132,7 +133,7 @@ let failedQueue: Array<{
   reject: (reason?: unknown) => void;
 }> = [];
 
-function processQueue(error: AxiosError | null, token: string | null = null) {
+function processQueue(error: Error | null, token: string | null = null) {
   failedQueue.forEach(({ resolve, reject }) => {
     if (error) {
       reject(error);
@@ -156,6 +157,7 @@ apiClient.interceptors.response.use(
           if (originalRequest.headers) {
             originalRequest.headers.Authorization = `Bearer ${token}`;
           }
+          originalRequest._retry = true;
           return apiClient(originalRequest);
         });
       }
@@ -185,6 +187,8 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError as AxiosError);
         await clearTokens();
+        // Reset auth state to force navigation to login
+        useAuthStore.getState().logout();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

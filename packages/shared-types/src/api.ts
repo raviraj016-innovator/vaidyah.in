@@ -55,7 +55,6 @@ export interface ErrorResponse {
     code: string;
     message: string;
     details?: Record<string, string[]>;
-    stack?: string;
   };
   requestId: string;
   timestamp: string;

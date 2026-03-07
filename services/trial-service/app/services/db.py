@@ -28,12 +28,14 @@ async def init_db_pool() -> asyncpg.Pool:
         return _pool
 
     settings = get_settings()
+    ssl_context = "require" if settings.environment in ("production", "prod", "staging") else None
     try:
         _pool = await asyncpg.create_pool(
             dsn=_dsn(),
             min_size=settings.database_pool_min,
             max_size=settings.database_pool_max,
             command_timeout=30,
+            ssl=ssl_context,
         )
         logger.info("pg_pool_created", min=settings.database_pool_min, max=settings.database_pool_max)
     except Exception:
@@ -91,10 +93,11 @@ async def execute(query: str, *args: Any) -> str:
 
 
 async def execute_many(query: str, args_list: list[tuple]) -> None:
-    """Execute *query* for each set of parameters in *args_list*."""
+    """Execute *query* for each set of parameters in *args_list* inside a transaction."""
     pool = get_pool()
     async with pool.acquire() as conn:
-        await conn.executemany(query, args_list)
+        async with conn.transaction():
+            await conn.executemany(query, args_list)
 
 
 async def execute_in_transaction(queries: list[tuple[str, tuple]]) -> None:
@@ -130,6 +133,7 @@ CREATE TABLE IF NOT EXISTS trial_matches (
 );
 CREATE INDEX IF NOT EXISTS idx_trial_matches_patient ON trial_matches (patient_id);
 CREATE INDEX IF NOT EXISTS idx_trial_matches_nct     ON trial_matches (nct_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trial_matches_patient_nct ON trial_matches (patient_id, nct_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
     notification_id TEXT PRIMARY KEY,
@@ -157,6 +161,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     longitude       REAL,
     notify_via_push BOOLEAN DEFAULT TRUE,
     notify_via_email BOOLEAN DEFAULT FALSE,
+    quiet_hours_start TEXT,
+    quiet_hours_end   TEXT,
+    frequency       TEXT NOT NULL DEFAULT 'immediate',
     is_active       BOOLEAN DEFAULT TRUE,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );

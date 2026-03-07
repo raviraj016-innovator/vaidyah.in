@@ -1,0 +1,461 @@
+###############################################################################
+# Vaidyah Platform - Network Policies
+#
+# Implements zero-trust network segmentation:
+#   1. Default deny all ingress in the namespace
+#   2. api-gateway accepts traffic from the ALB / Ingress controller
+#   3. Internal services only accept traffic from api-gateway
+#   4. All services can reach data stores (PostgreSQL, Redis, OpenSearch)
+#   5. All services can reach DNS for service discovery
+#
+# Prerequisites:
+#   - A CNI plugin that supports NetworkPolicy (e.g., Calico, Cilium)
+#   - AWS VPC CNI with network policy support enabled on EKS
+###############################################################################
+
+###############################################################################
+# 1. Default Deny All Ingress
+# Block all inbound traffic to pods in the vaidyah namespace by default.
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+###############################################################################
+# 1b. Default Deny All Egress
+# Block all outbound traffic from pods by default. Explicit egress rules below
+# whitelist required destinations (data stores, DNS, AWS services).
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+---
+###############################################################################
+# 2. API Gateway Ingress
+# Allow the api-gateway to receive traffic from:
+#   - The AWS ALB Ingress controller namespace
+#   - Prometheus / monitoring namespace (for scraping)
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from the ALB Ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow traffic from any source on the ALB target port
+    # (needed because ALB health checks originate from the VPC CIDR)
+    - ports:
+        - protocol: TCP
+          port: 3000
+      from:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+    # Allow Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 3000
+
+---
+###############################################################################
+# 3. Internal Services Ingress - Clinical Service
+# Only accept traffic from api-gateway and other vaidyah services.
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-clinical-service-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: clinical-service
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from api-gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 3001
+    # Allow from other internal vaidyah services
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: vaidyah
+              vaidyah.health/tier: internal
+      ports:
+        - protocol: TCP
+          port: 3001
+    # Allow Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 3001
+
+---
+###############################################################################
+# 4. Internal Services Ingress - Integration Service
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-integration-service-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: integration-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 3002
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: vaidyah
+              vaidyah.health/tier: internal
+      ports:
+        - protocol: TCP
+          port: 3002
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 3002
+
+---
+###############################################################################
+# 5. Internal Services Ingress - Voice Service
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-voice-service-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: voice-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8001
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: vaidyah
+              vaidyah.health/tier: internal
+      ports:
+        - protocol: TCP
+          port: 8001
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8001
+
+---
+###############################################################################
+# 6. Internal Services Ingress - NLU Service
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nlu-service-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nlu-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8002
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: vaidyah
+              vaidyah.health/tier: internal
+      ports:
+        - protocol: TCP
+          port: 8002
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8002
+
+---
+###############################################################################
+# 7. Internal Services Ingress - Trial Service
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-trial-service-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: trial-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - protocol: TCP
+          port: 8003
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: vaidyah
+              vaidyah.health/tier: internal
+      ports:
+        - protocol: TCP
+          port: 8003
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8003
+
+---
+###############################################################################
+# 7b. Admin Portal Ingress
+# Allow admin-portal to receive traffic from the ALB/Ingress controller
+# (static frontend served by nginx on port 8080)
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-admin-portal-ingress
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: admin-portal
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from the ALB Ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: aws-load-balancer-controller
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow ALB health checks from VPC CIDR
+    - ports:
+        - protocol: TCP
+          port: 8080
+      from:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+
+---
+###############################################################################
+# 8. Egress - Allow all services to reach data stores
+# Permits outbound connections to:
+#   - PostgreSQL (port 5432)
+#   - Redis / ElastiCache (port 6379)
+#   - OpenSearch (port 443/9200)
+#   - DNS (port 53 UDP/TCP for kube-dns)
+#   - AWS services via HTTPS (port 443) for DynamoDB, S3, Cognito, etc.
+###############################################################################
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-data-stores
+  namespace: vaidyah
+  labels:
+    app.kubernetes.io/part-of: vaidyah
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: vaidyah
+  policyTypes:
+    - Egress
+  egress:
+    # DNS resolution (kube-dns)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # PostgreSQL / RDS
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Redis / ElastiCache
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 6379
+
+    # OpenSearch (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 9200
+
+    # Inter-service communication within the namespace
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: vaidyah
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 3001
+        - protocol: TCP
+          port: 3002
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+        - protocol: TCP
+          port: 8003
+        - protocol: TCP
+          port: 8080
+
+    # AWS API endpoints (DynamoDB, S3, Cognito, STS, Secrets Manager, etc.)
+    # These traverse VPC endpoints or NAT Gateway.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # OpenTelemetry Collector in monitoring namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318

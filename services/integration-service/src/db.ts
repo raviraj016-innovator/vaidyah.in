@@ -1,4 +1,5 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+import { createHash } from 'crypto';
 import config from './config';
 
 let pool: Pool | null = null;
@@ -14,7 +15,7 @@ export function getPool(): Pool {
       max: config.database.maxPoolSize,
       idleTimeoutMillis: config.database.idleTimeout,
       connectionTimeoutMillis: config.database.connectionTimeout,
-      ssl: config.database.ssl ? { rejectUnauthorized: false } : undefined,
+      ssl: config.database.ssl ? { rejectUnauthorized: true } : undefined,
     });
 
     pool.on('error', (err: Error) => {
@@ -40,7 +41,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   const duration = Date.now() - start;
 
   if (duration > 1000) {
-    console.warn(`[DB] Slow query (${duration}ms):`, text.substring(0, 100));
+    console.warn(`[DB] Slow query (${duration}ms)`, { queryFingerprint: createHash('sha256').update(text).digest('hex').slice(0, 12) });
   }
 
   return result;
@@ -89,7 +90,11 @@ export async function withTransaction<T>(
     await client.query('COMMIT');
     return result;
   } catch (error) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('[DB] Rollback failed:', rollbackErr, 'Original error:', error);
+    }
     throw error;
   } finally {
     client.release();

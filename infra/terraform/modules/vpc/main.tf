@@ -63,12 +63,16 @@ resource "aws_subnet" "private" {
 
 # ── Elastic IP for NAT Gateway ──────────────────────────────────────────────
 
+locals {
+  nat_gateway_count = var.enable_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.availability_zones)) : 0
+}
+
 resource "aws_eip" "nat" {
-  count  = var.enable_nat_gateway ? 1 : 0
+  count  = local.nat_gateway_count
   domain = "vpc"
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-nat-eip"
+    Name = "${local.name_prefix}-nat-eip-${var.availability_zones[count.index]}"
   })
 
   depends_on = [aws_internet_gateway.main]
@@ -77,13 +81,13 @@ resource "aws_eip" "nat" {
 # ── NAT Gateway ─────────────────────────────────────────────────────────────
 
 resource "aws_nat_gateway" "main" {
-  count = var.enable_nat_gateway ? 1 : 0
+  count = local.nat_gateway_count
 
-  allocation_id = aws_eip.nat[0].id
-  subnet_id     = aws_subnet.public[0].id
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.public[count.index].id
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-nat"
+    Name = "${local.name_prefix}-nat-${var.availability_zones[count.index]}"
   })
 
   depends_on = [aws_internet_gateway.main]
@@ -111,29 +115,32 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# ── Private Route Table ─────────────────────────────────────────────────────
+# ── Private Route Tables ────────────────────────────────────────────────────
+# When single_nat_gateway is false, each AZ gets its own route table pointing
+# to its own NAT gateway for HA. When true, all AZs share one route table.
 
 resource "aws_route_table" "private" {
+  count  = var.single_nat_gateway ? 1 : length(var.availability_zones)
   vpc_id = aws_vpc.main.id
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-private-rt"
+    Name = var.single_nat_gateway ? "${local.name_prefix}-private-rt" : "${local.name_prefix}-private-rt-${var.availability_zones[count.index]}"
   })
 }
 
 resource "aws_route" "private_nat" {
-  count = var.enable_nat_gateway ? 1 : 0
+  count = var.enable_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.availability_zones)) : 0
 
-  route_table_id         = aws_route_table.private.id
+  route_table_id         = aws_route_table.private[count.index].id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.main[0].id
+  nat_gateway_id         = aws_nat_gateway.main[var.single_nat_gateway ? 0 : count.index].id
 }
 
 resource "aws_route_table_association" "private" {
   count = length(var.private_subnet_cidrs)
 
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[var.single_nat_gateway ? 0 : count.index].id
 }
 
 # ── Security Groups ─────────────────────────────────────────────────────────
@@ -271,7 +278,8 @@ resource "aws_flow_log" "main" {
 
 resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
   name              = "/aws/vpc/${local.name_prefix}-flow-logs"
-  retention_in_days = 30
+  retention_in_days = 90
+  kms_key_id        = var.kms_key_arn != "" ? var.kms_key_arn : null
 
   tags = var.tags
 }
@@ -311,7 +319,10 @@ resource "aws_iam_role_policy" "vpc_flow_logs" {
           "logs:DescribeLogStreams"
         ]
         Effect   = "Allow"
-        Resource = "*"
+        Resource = [
+          aws_cloudwatch_log_group.vpc_flow_logs.arn,
+          "${aws_cloudwatch_log_group.vpc_flow_logs.arn}:*"
+        ]
       }
     ]
   })

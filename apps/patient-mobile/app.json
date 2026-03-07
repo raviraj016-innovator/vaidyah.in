@@ -16,13 +16,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.vaidyah.patient",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "We need your location to find nearby clinical trials.",
-        "NSLocationAlwaysUsageDescription": "We need your location to notify you about nearby clinical trials.",
         "NSCameraUsageDescription": "Upload medical documents by taking photos.",
         "NSMicrophoneUsageDescription": "Use voice search to find clinical trials."
-      },
-      "config": {
-        "googleMapsApiKey": "YOUR_IOS_GOOGLE_MAPS_API_KEY"
       }
     },
     "android": {
@@ -32,33 +27,16 @@
       },
       "package": "com.vaidyah.patient",
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
         "CAMERA",
-        "RECORD_AUDIO",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "YOUR_ANDROID_GOOGLE_MAPS_API_KEY"
-        }
-      },
-      "googleServicesFile": "./google-services.json"
+        "RECORD_AUDIO"
+      ]
     },
     "plugins": [
-      "expo-notifications",
-      "expo-secure-store",
-      "expo-localization"
+      "expo-secure-store"
     ],
-    "notification": {
-      "icon": "./assets/notification-icon.png",
-      "color": "#1B5E20",
-      "iosDisplayInForeground": true
-    },
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "00000000-0000-0000-0000-000000000000"
       }
     },
     "scheme": "vaidyah"

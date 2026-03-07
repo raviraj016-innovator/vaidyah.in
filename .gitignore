@@ -20,3 +20,6 @@ __pycache__/
 .terraform.lock.hcl
 *.tfvars
 !*.tfvars.example
+repos/
+.turbo/
+.claude/

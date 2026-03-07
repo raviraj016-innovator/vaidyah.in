@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -215,9 +215,17 @@ class ConversationTurn(BaseModel):
     """A single turn in the patient-doctor conversation."""
 
     role: str = Field(..., description="'doctor' or 'patient'")
-    text: str
+    text: str = Field(..., max_length=50000)
     language: SupportedLanguage = SupportedLanguage.ENGLISH
     timestamp: Optional[datetime] = None
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        allowed = {"user", "assistant", "system", "doctor", "patient"}
+        if v not in allowed:
+            raise ValueError(f"role must be one of {sorted(allowed)}, got {v!r}")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +236,7 @@ class SymptomExtractionRequest(BaseModel):
     """Request to extract symptoms from transcript text."""
 
     text: str = Field(
-        ..., description="Transcript text from the patient conversation"
+        ..., min_length=1, max_length=50000, description="Transcript text from the patient conversation"
     )
     language: SupportedLanguage = Field(default=SupportedLanguage.ENGLISH)
     patient_id: Optional[str] = None
@@ -250,7 +258,7 @@ class ContradictionCheckRequest(BaseModel):
         description="Patient's medical history including past conditions, "
         "medications, and previous visit notes",
     )
-    conversation_history: list[ConversationTurn] = Field(default_factory=list)
+    conversation_history: list[ConversationTurn] = Field(default_factory=list, max_length=200)
     vital_signs: Optional[VitalSigns] = None
     patient_id: Optional[str] = None
     session_id: Optional[str] = None
@@ -265,7 +273,7 @@ class ClinicalReasoningRequest(BaseModel):
     vital_signs: Optional[VitalSigns] = None
     medical_history: Optional[dict[str, Any]] = None
     demographics: Optional[PatientDemographics] = None
-    conversation_history: list[ConversationTurn] = Field(default_factory=list)
+    conversation_history: list[ConversationTurn] = Field(default_factory=list, max_length=200)
     max_diagnoses: int = Field(
         default=5,
         ge=1,
@@ -280,7 +288,7 @@ class FollowUpQuestionRequest(BaseModel):
     """Request to generate follow-up questions."""
 
     conversation_history: list[ConversationTurn] = Field(
-        ..., description="Conversation so far"
+        ..., description="Conversation so far", max_length=200
     )
     extracted_symptoms: list[Symptom] = Field(default_factory=list)
     medical_history: Optional[dict[str, Any]] = None
@@ -293,7 +301,7 @@ class FollowUpQuestionRequest(BaseModel):
 class TranslationRequest(BaseModel):
     """Request for medical-aware translation."""
 
-    text: str = Field(..., description="Text to translate")
+    text: str = Field(..., min_length=1, max_length=50000, description="Text to translate")
     source_language: SupportedLanguage
     target_language: SupportedLanguage
     context: str = Field(

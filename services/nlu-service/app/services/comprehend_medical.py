@@ -15,7 +15,7 @@ import structlog
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from app.config import settings
+from app.config import get_settings
 from app.models import MedicalEntity, MedicalEntityType
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +48,7 @@ class ComprehendMedicalClient:
     """Wrapper around Amazon Comprehend Medical APIs."""
 
     def __init__(self) -> None:
+        settings = get_settings()
         boto_config = BotoConfig(
             region_name=settings.aws_region,
             retries={"max_attempts": 3, "mode": "standard"},
@@ -101,7 +102,15 @@ class ComprehendMedicalClient:
                 "text_truncated_for_comprehend",
                 original_bytes=len(encoded),
             )
-            text = encoded[:20_000].decode("utf-8", errors="ignore")
+            # Truncate at a valid UTF-8 character boundary
+            truncated = encoded[:20_000]
+            # Walk back to find a valid character boundary (max 4 bytes for UTF-8)
+            while truncated and (truncated[-1] & 0xC0) == 0x80:
+                truncated = truncated[:-1]
+            if truncated and truncated[-1] >= 0xC0:
+                # Last byte is a lead byte without its continuation bytes
+                truncated = truncated[:-1]
+            text = truncated.decode("utf-8")
 
         start_time = time.monotonic()
 
@@ -146,7 +155,12 @@ class ComprehendMedicalClient:
 
         encoded = text.encode("utf-8")
         if len(encoded) > 20_000:
-            text = encoded[:20_000].decode("utf-8", errors="ignore")
+            truncated = encoded[:20_000]
+            while truncated and (truncated[-1] & 0xC0) == 0x80:
+                truncated = truncated[:-1]
+            if truncated and truncated[-1] >= 0xC0:
+                truncated = truncated[:-1]
+            text = truncated.decode("utf-8")
 
         try:
             response = self._client.infer_icd10_cm(Text=text)
@@ -188,7 +202,12 @@ class ComprehendMedicalClient:
 
         encoded = text.encode("utf-8")
         if len(encoded) > 20_000:
-            text = encoded[:20_000].decode("utf-8", errors="ignore")
+            truncated = encoded[:20_000]
+            while truncated and (truncated[-1] & 0xC0) == 0x80:
+                truncated = truncated[:-1]
+            if truncated and truncated[-1] >= 0xC0:
+                truncated = truncated[:-1]
+            text = truncated.decode("utf-8")
 
         try:
             response = self._client.infer_rx_norm(Text=text)

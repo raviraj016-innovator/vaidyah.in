@@ -152,6 +152,30 @@ export interface ProxyResponse {
   body: unknown;
 }
 
+/**
+ * Flatten Express's ParsedQs (which may contain nested objects) into a
+ * simple Record<string, string | string[] | undefined> suitable for
+ * URLSearchParams serialization.
+ */
+function flattenQuery(
+  qs: Record<string, unknown>,
+): Record<string, string | string[] | undefined> {
+  const result: Record<string, string | string[] | undefined> = {};
+  for (const [key, value] of Object.entries(qs)) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string') {
+      result[key] = value;
+    } else if (Array.isArray(value)) {
+      result[key] = value
+        .filter((v): v is string => typeof v === 'string');
+    } else {
+      // Nested ParsedQs objects — stringify as a fallback
+      result[key] = String(value);
+    }
+  }
+  return result;
+}
+
 function buildQueryString(
   params: Record<string, string | string[] | undefined>,
 ): string {
@@ -200,9 +224,26 @@ function makeRequest(
       },
     };
 
+    const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10 MB
+
     const req = transport.request(reqOptions, (res) => {
       const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      let totalSize = 0;
+      res.on('data', (chunk: Buffer) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_RESPONSE_SIZE) {
+          res.destroy(new Error('Response too large'));
+          reject(
+            new AppError(
+              `Response from ${endpoint.name} exceeds ${MAX_RESPONSE_SIZE} bytes`,
+              502,
+              'RESPONSE_TOO_LARGE',
+            ),
+          );
+          return;
+        }
+        chunks.push(chunk);
+      });
       res.on('end', () => {
         const rawBody = Buffer.concat(chunks).toString('utf8');
         let parsedBody: unknown;
@@ -254,7 +295,6 @@ async function proxyWithRetry(
 
     // 5xx from upstream counts as a failure for circuit breaker
     if (response.statusCode >= 500) {
-      recordFailure(endpoint.name);
       if (retriesLeft > 0) {
         console.warn(
           `[Proxy] ${endpoint.name} returned ${response.statusCode}, retrying (${retriesLeft} left)`,
@@ -262,14 +302,14 @@ async function proxyWithRetry(
         await sleep(500);
         return proxyWithRetry(endpoint, options, retriesLeft - 1);
       }
+      // Only record failure after all retries are exhausted
+      recordFailure(endpoint.name);
     } else {
       recordSuccess(endpoint.name);
     }
 
     return response;
   } catch (err) {
-    recordFailure(endpoint.name);
-
     if (retriesLeft > 0 && isRetryable(err)) {
       console.warn(
         `[Proxy] ${endpoint.name} error, retrying (${retriesLeft} left):`,
@@ -278,6 +318,9 @@ async function proxyWithRetry(
       await sleep(500);
       return proxyWithRetry(endpoint, options, retriesLeft - 1);
     }
+
+    // Only record failure after all retries are exhausted
+    recordFailure(endpoint.name);
 
     throw err;
   }
@@ -329,10 +372,12 @@ export async function forwardRequest(
     method: req.method,
     path,
     body: req.body as unknown,
-    query: req.query as Record<string, string>,
+    query: flattenQuery(req.query),
     headers: {
+      ...(req.headers['authorization'] ? { 'authorization': req.headers['authorization'] as string } : {}),
       ...(req.headers['x-request-id'] ? { 'x-request-id': req.headers['x-request-id'] as string } : {}),
       ...(req.headers['x-correlation-id'] ? { 'x-correlation-id': req.headers['x-correlation-id'] as string } : {}),
+      ...((req as Record<string, any>).user?.sub ? { 'x-user-id': (req as Record<string, any>).user.sub as string } : {}),
     },
     ...overrides,
   };

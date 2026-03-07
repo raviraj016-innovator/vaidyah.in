@@ -17,8 +17,5 @@
     "composite": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../shared-types" }
-  ]
+  "exclude": ["node_modules", "dist", "src/__tests__"]
 }

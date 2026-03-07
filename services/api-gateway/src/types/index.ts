@@ -35,6 +35,7 @@ export interface ApiResponse<T = unknown> {
     limit?: number;
     total?: number;
     requestId?: string;
+    warning?: string;
   };
 }
 
@@ -186,7 +187,7 @@ export interface ServiceEndpoint {
 
 export interface AuditEntry {
   userId: string;
-  userRole: UserRole;
+  userRole: UserRole | 'anonymous';
   action: string;
   resource: string;
   resourceId?: string;

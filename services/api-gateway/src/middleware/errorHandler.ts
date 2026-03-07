@@ -97,13 +97,10 @@ export function globalErrorHandler(
   let statusCode = 500;
   let code = 'INTERNAL_ERROR';
   let message = 'An unexpected error occurred';
-  let details: unknown = undefined;
-
   if (err instanceof AppError) {
     statusCode = err.statusCode;
     code = err.code;
     message = err.message;
-    details = err.details;
   } else if (err.name === 'ValidationError') {
     statusCode = 400;
     code = 'VALIDATION_ERROR';
@@ -119,13 +116,12 @@ export function globalErrorHandler(
     message = 'Invalid or expired authentication token';
   }
 
-  // Log the error (full stack for 5xx, message-only for 4xx)
+  // Log the error (message for 5xx, message-only for 4xx — avoid stack with PHI)
   if (statusCode >= 500) {
     console.error(`[ERROR ${errorId}]`, {
       statusCode,
       code,
       message: err.message,
-      stack: err.stack,
     });
   } else {
     console.warn(`[WARN ${errorId}]`, {
@@ -140,7 +136,6 @@ export function globalErrorHandler(
     error: {
       code,
       message,
-      ...(process.env.NODE_ENV !== 'production' && details ? { details } : {}),
     },
     meta: {
       requestId: errorId,
@@ -153,5 +148,8 @@ export function globalErrorHandler(
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 
 export function notFoundHandler(req: Request, _res: Response, next: NextFunction): void {
-  next(AppError.notFound(`Route ${req.method} ${req.path}`));
+  const detail = process.env.NODE_ENV === 'production'
+    ? 'The requested resource was not found'
+    : `Route ${req.method} ${req.path}`;
+  next(AppError.notFound(detail));
 }

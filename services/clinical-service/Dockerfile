@@ -4,8 +4,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first for layer caching
-COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+COPY package.json ./
+RUN npm install --ignore-scripts
 
 # Copy source and build
 COPY tsconfig.json ./
@@ -18,8 +18,9 @@ RUN npm prune --production
 # ---- Production Stage ----
 FROM node:20-alpine AS production
 
-# Security: run as non-root
-RUN addgroup -g 1001 -S vaidyah && \
+# Security: run as non-root; dumb-init for proper PID 1 signal handling
+RUN apk add --no-cache dumb-init && \
+    addgroup -g 1001 -S vaidyah && \
     adduser -S vaidyah -u 1001 -G vaidyah
 
 WORKDIR /app
@@ -41,4 +42,5 @@ EXPOSE 3001
 
 USER vaidyah
 
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/index.js"]

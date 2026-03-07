@@ -31,6 +31,7 @@ interface CognitoConfig {
   region: string;
   jwksUri: string;
   issuer: string;
+  audience: string;
   tokenExpiry: number;
 }
 
@@ -101,8 +102,21 @@ function envList(key: string, fallback: string[]): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+const isProd = process.env.NODE_ENV === 'production';
+
+function prodRequireEnv(key: string, devFallback: string): string {
+  if (isProd) {
+    const v = process.env[key];
+    if (!v) throw new Error('Missing required env var: ' + key);
+    return v;
+  }
+  return process.env[key] ?? devFallback;
+}
+
 const cognitoRegion = envStr('COGNITO_REGION', 'ap-south-1');
-const cognitoUserPoolId = envStr('COGNITO_USER_POOL_ID', '');
+const cognitoUserPoolId = isProd
+  ? prodRequireEnv('COGNITO_USER_POOL_ID', '')
+  : envStr('COGNITO_USER_POOL_ID', '');
 
 const config: AppConfig = {
   server: {
@@ -119,22 +133,22 @@ const config: AppConfig = {
     port: envInt('DB_PORT', 5432),
     database: envStr('DB_NAME', 'vaidyah'),
     user: envStr('DB_USER', 'vaidyah'),
-    password: envStr('DB_PASSWORD', ''),
+    password: prodRequireEnv('DB_PASSWORD', ''),
     maxConnections: envInt('DB_MAX_CONNECTIONS', 20),
     idleTimeoutMs: envInt('DB_IDLE_TIMEOUT_MS', 30000),
     connectionTimeoutMs: envInt('DB_CONNECTION_TIMEOUT_MS', 5000),
-    ssl: envBool('DB_SSL', false),
+    ssl: envBool('DB_SSL', isProd),
   },
 
   redis: {
     host: envStr('REDIS_HOST', 'localhost'),
     port: envInt('REDIS_PORT', 6379),
-    password: envStr('REDIS_PASSWORD', ''),
+    password: prodRequireEnv('REDIS_PASSWORD', ''),
     db: envInt('REDIS_DB', 0),
     keyPrefix: envStr('REDIS_KEY_PREFIX', 'vaidyah:gw:'),
     maxRetriesPerRequest: envInt('REDIS_MAX_RETRIES', 3),
     connectTimeout: envInt('REDIS_CONNECT_TIMEOUT', 5000),
-    tls: envBool('REDIS_TLS', false),
+    tls: envBool('REDIS_TLS', isProd),
   },
 
   cognito: {
@@ -146,15 +160,16 @@ const config: AppConfig = {
     issuer: cognitoUserPoolId
       ? `https://cognito-idp.${cognitoRegion}.amazonaws.com/${cognitoUserPoolId}`
       : '',
+    audience: isProd ? prodRequireEnv('COGNITO_AUDIENCE', '') : envStr('COGNITO_AUDIENCE', ''),
     tokenExpiry: envInt('TOKEN_EXPIRY_SECONDS', 3600),
   },
 
   services: {
-    voiceService: envStr('VOICE_SERVICE_URL', 'http://voice-service:3001'),
-    clinicalService: envStr('CLINICAL_SERVICE_URL', 'http://clinical-service:3002'),
-    nluService: envStr('NLU_SERVICE_URL', 'http://nlu-service:3003'),
-    trialService: envStr('TRIAL_SERVICE_URL', 'http://trial-service:3004'),
-    integrationService: envStr('INTEGRATION_SERVICE_URL', 'http://integration-service:3005'),
+    voiceService: envStr('VOICE_SERVICE_URL', 'http://voice-service:8001'),
+    clinicalService: envStr('CLINICAL_SERVICE_URL', 'http://clinical-service:3001'),
+    nluService: envStr('NLU_SERVICE_URL', 'http://nlu-service:8002'),
+    trialService: envStr('TRIAL_SERVICE_URL', 'http://trial-service:8003'),
+    integrationService: envStr('INTEGRATION_SERVICE_URL', 'http://integration-service:3002'),
   },
 
   rateLimit: {

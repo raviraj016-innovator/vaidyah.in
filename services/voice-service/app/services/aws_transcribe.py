@@ -46,6 +46,8 @@ class StreamSession:
     """Holds state for an active streaming transcription session."""
 
     def __init__(self, session_id: str, language_code: str, sample_rate: int):
+        if sample_rate <= 0:
+            raise ValueError(f"sample_rate must be positive, got {sample_rate}")
         self.session_id = session_id
         self.language_code = language_code
         self.sample_rate = sample_rate
@@ -62,17 +64,29 @@ class AWSTranscribeService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._client: Optional[Any] = None
+        self._s3_client: Optional[Any] = None
 
     def _get_client(self) -> Any:
         if self._client is None:
             kwargs: dict[str, Any] = {"region_name": self._settings.aws_region}
-            if self._settings.aws_access_key_id:
+            if self._settings.aws_access_key_id and self._settings.aws_secret_access_key:
                 kwargs["aws_access_key_id"] = self._settings.aws_access_key_id
                 kwargs["aws_secret_access_key"] = self._settings.aws_secret_access_key
-            if self._settings.aws_session_token:
-                kwargs["aws_session_token"] = self._settings.aws_session_token
+                if self._settings.aws_session_token:
+                    kwargs["aws_session_token"] = self._settings.aws_session_token
             self._client = boto3.client("transcribe", **kwargs)
         return self._client
+
+    def _get_s3_client(self) -> Any:
+        if self._s3_client is None:
+            kwargs: dict[str, Any] = {"region_name": self._settings.aws_region}
+            if self._settings.aws_access_key_id and self._settings.aws_secret_access_key:
+                kwargs["aws_access_key_id"] = self._settings.aws_access_key_id
+                kwargs["aws_secret_access_key"] = self._settings.aws_secret_access_key
+                if self._settings.aws_session_token:
+                    kwargs["aws_session_token"] = self._settings.aws_session_token
+            self._s3_client = boto3.client("s3", **kwargs)
+        return self._s3_client
 
     # ------------------------------------------------------------------
     # Batch transcription (file upload)
@@ -136,12 +150,7 @@ class AWSTranscribeService:
 
         # Upload audio to a temporary S3 location
         s3_key = f"transcribe-input/{job_name}.wav"
-        s3_client = boto3.client(
-            "s3",
-            region_name=self._settings.aws_region,
-            aws_access_key_id=self._settings.aws_access_key_id,
-            aws_secret_access_key=self._settings.aws_secret_access_key,
-        )
+        s3_client = self._get_s3_client()
 
         await loop.run_in_executor(
             None,
@@ -166,8 +175,6 @@ class AWSTranscribeService:
             "Specialty": specialty,
             "Type": self._settings.transcribe_type,
             "Settings": {
-                "ShowSpeakerLabels": True,
-                "MaxSpeakerLabels": 2,
                 "ShowAlternatives": False,
             },
         }
@@ -238,16 +245,16 @@ class AWSTranscribeService:
         job = response["MedicalTranscriptionJob"]
         transcript_uri = job.get("Transcript", {}).get("TranscriptFileUri", "")
 
-        # In a real scenario we would download the JSON from S3.
-        # The response already contains summary information.
         transcript_text = ""
         segments: list[dict] = []
         confidence = 0.0
         medical_terms: list[str] = []
 
-        # Extract transcript from the job result if available
-        if "Transcript" in job:
-            transcript_text = job.get("Transcript", {}).get("TranscriptFileUri", "")
+        # Download the transcript JSON from S3 and extract the actual text
+        if transcript_uri:
+            transcript_text, segments, confidence, medical_terms = (
+                self._download_transcript_from_s3(transcript_uri)
+            )
 
         return {
             "transcript": transcript_text,
@@ -258,12 +265,96 @@ class AWSTranscribeService:
             "transcript_uri": transcript_uri,
         }
 
+    def _download_transcript_from_s3(
+        self, transcript_uri: str
+    ) -> tuple[str, list[dict], float, list[str]]:
+        """Download and parse the transcript JSON from the S3 URI."""
+        import re
+
+        transcript_text = ""
+        segments: list[dict] = []
+        confidence = 0.0
+        medical_terms: list[str] = []
+
+        try:
+            # Parse s3://bucket/key from the URI
+            match = re.match(r"s3://([^/]+)/(.+)", transcript_uri)
+            if not match:
+                # If it's an HTTPS URL: https://s3.<region>.amazonaws.com/<bucket>/<key>
+                match = re.match(
+                    r"https://s3[.\w-]*\.amazonaws\.com/([^/]+)/(.+)", transcript_uri
+                )
+            if not match:
+                logger.warning(
+                    "transcribe.unparseable_uri", uri=transcript_uri
+                )
+                return transcript_text, segments, confidence, medical_terms
+
+            bucket, key = match.group(1), match.group(2)
+            s3_client = self._get_s3_client()
+            obj = s3_client.get_object(Bucket=bucket, Key=key)
+            body = obj["Body"]
+            try:
+                result_json = json.loads(body.read().decode("utf-8"))
+            finally:
+                body.close()
+
+            # Extract transcript text from results
+            transcripts = (
+                result_json.get("results", {}).get("transcripts", [])
+            )
+            if transcripts:
+                transcript_text = transcripts[0].get("transcript", "")
+
+            # Extract segments from items
+            items = result_json.get("results", {}).get("items", [])
+            for item in items:
+                if item.get("type") == "pronunciation":
+                    alts = item.get("alternatives", [])
+                    best = alts[0] if alts else {}
+                    seg_confidence = float(best.get("confidence", 0.0))
+                    segments.append(
+                        {
+                            "text": best.get("content", ""),
+                            "start_time": float(
+                                item.get("start_time", 0.0)
+                            ),
+                            "end_time": float(item.get("end_time", 0.0)),
+                            "confidence": seg_confidence,
+                            "is_partial": False,
+                        }
+                    )
+
+            # Compute average confidence
+            if segments:
+                confidence = sum(s["confidence"] for s in segments) / len(
+                    segments
+                )
+
+            # Detect known medical terms in the transcript
+            lower_text = transcript_text.lower()
+            medical_terms = [
+                term
+                for term in MEDICAL_VOCABULARY_BOOST
+                if term.lower() in lower_text
+            ]
+
+        except Exception as exc:
+            logger.error(
+                "transcribe.s3_download_failed",
+                uri=transcript_uri,
+                error=str(exc),
+                exc_info=True,
+            )
+
+        return transcript_text, segments, confidence, medical_terms
+
     def _local_fallback(
         self, audio_bytes: bytes, language_code: str
     ) -> dict[str, Any]:
         """Local fallback for development / testing without AWS credentials."""
         logger.warning("transcribe.using_local_fallback")
-        audio_hash = hashlib.md5(audio_bytes[:1024]).hexdigest()[:8]
+        audio_hash = hashlib.sha256(audio_bytes[:1024]).hexdigest()[:8]
         return {
             "transcript": (
                 f"[DEV FALLBACK] Transcription placeholder for {language_code} "
@@ -320,6 +411,19 @@ class AWSTranscribeService:
         """
         if not session.is_active:
             return []
+
+        # Prevent unbounded buffer growth (max 10 seconds of audio)
+        max_buffer_size = session.sample_rate * 2 * 10  # 10s of 16-bit mono
+        if len(session.audio_buffer) + len(chunk) > max_buffer_size:
+            logger.warning(
+                "transcribe.buffer_overflow",
+                session_id=session.session_id,
+                buffer_size=len(session.audio_buffer),
+                chunk_size=len(chunk),
+            )
+            # Drop oldest data to make room
+            overflow = len(session.audio_buffer) + len(chunk) - max_buffer_size
+            session.audio_buffer = session.audio_buffer[overflow:]
 
         session.audio_buffer.extend(chunk)
         results: list[dict[str, Any]] = []

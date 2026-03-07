@@ -20,18 +20,56 @@
     "docker:down": "docker-compose down"
   },
   "devDependencies": {
-    "turbo": "^2.3.0",
-    "prettier": "^3.2.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
     "eslint": "^9.0.0",
     "husky": "^9.0.0",
-    "lint-staged": "^15.2.0"
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "turbo": "^2.3.0"
   },
+  "packageManager": "npm@11.7.0",
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx}": ["eslint --fix", "prettier --write"],
-    "*.{json,md,yml,yaml}": ["prettier --write"]
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "overrides": {
+    "@vaidyah/web": {
+      "react": "19.0.0",
+      "react-dom": "19.0.0"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "9.0.9"
+    },
+    "@expo/image-utils": {
+      "semver": "7.7.4"
+    },
+    "@react-native-community/cli-doctor": {
+      "ip": "2.0.1"
+    },
+    "@react-native-community/cli-hermes": {
+      "ip": "2.0.1"
+    },
+    "cacache": {
+      "tar": "7.5.9"
+    },
+    "@expo/cli": {
+      "send": "0.19.0",
+      "tar": "7.5.9"
+    },
+    "terser-webpack-plugin": {
+      "serialize-javascript": "7.0.4"
+    }
   }
 }

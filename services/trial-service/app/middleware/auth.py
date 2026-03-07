@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import os
+
 import structlog
+import jwt
+from jwt.exceptions import PyJWTError
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 
 from app.config import Settings, get_settings
 
@@ -43,9 +46,10 @@ def _decode_token(token: str, settings: Settings) -> dict[str, Any]:
             algorithms=[settings.jwt_algorithm],
             audience=settings.jwt_audience,
             issuer=settings.jwt_issuer,
+            options={"require": ["sub", "exp", "iat"]},
         )
         return payload
-    except JWTError as exc:
+    except PyJWTError as exc:
         logger.warning("jwt_decode_failed", error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -66,11 +70,11 @@ async def get_current_user(
     exercised without a real auth server.
     """
     if credentials is None or not credentials.credentials:
-        if settings.environment == "development":
+        if settings.environment == "development" and os.environ.get("ALLOW_DEV_AUTH") == "true":
             logger.debug("dev_mode_no_token", path=request.url.path)
             return AuthenticatedUser(
                 sub="dev-user-000",
-                roles=["patient", "admin"],
+                roles=["patient"],
                 claims={},
             )
         raise HTTPException(

@@ -1,91 +1,149 @@
+/**
+ * JWT authentication middleware for the Integration service.
+ * Validates tokens issued by AWS Cognito (RS256) in production.
+ * In development with ALLOW_DEV_AUTH, accepts HS256 tokens.
+ */
+
+import { randomUUID } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import config from '../config';
+import jwksRsa from 'jwks-rsa';
+import { config } from '../config';
 import { AuthenticatedUser } from '../types';
+import { UnauthorizedError } from './errorHandler';
 
-interface JwtPayload {
-  sub: string;
-  role: 'doctor' | 'patient' | 'admin' | 'system';
-  permissions: string[];
-  iat: number;
-  exp: number;
-  iss: string;
-  aud: string;
+const VALID_ROLES: readonly string[] = ['patient', 'nurse', 'doctor', 'admin', 'system'];
+function isValidRole(role: unknown): role is AuthenticatedUser['role'] {
+  return typeof role === 'string' && VALID_ROLES.includes(role);
+}
+
+/** JWKS client for Cognito token verification (lazily initialized). */
+let jwksClient: jwksRsa.JwksClient | null = null;
+
+function getJwksClient(): jwksRsa.JwksClient {
+  if (!jwksClient) {
+    const issuer = `https://cognito-idp.${config.cognito.region}.amazonaws.com/${config.cognito.userPoolId}`;
+    jwksClient = jwksRsa({
+      jwksUri: `${issuer}/.well-known/jwks.json`,
+      cache: true,
+      cacheMaxAge: 600_000, // 10 minutes
+      rateLimit: true,
+      jwksRequestsPerMinute: 10,
+    });
+  }
+  return jwksClient;
+}
+
+function getSigningKey(kid: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    getJwksClient().getSigningKey(kid, (err: Error | null, key?: jwksRsa.SigningKey) => {
+      if (err) {
+        reject(new UnauthorizedError('Unable to retrieve signing key'));
+        return;
+      }
+      if (!key) {
+        reject(new UnauthorizedError('Signing key not found'));
+        return;
+      }
+      resolve(key.getPublicKey());
+    });
+  });
+}
+
+function extractUser(payload: jwt.JwtPayload): AuthenticatedUser {
+  if (!payload.sub) {
+    throw new UnauthorizedError('Token missing required "sub" claim');
+  }
+
+  const role = (() => {
+    const customRole = payload['custom:role'] as string;
+    if (isValidRole(customRole)) return customRole;
+    const directRole = payload.role as string;
+    if (isValidRole(directRole)) return directRole;
+    throw new UnauthorizedError('Token missing valid role claim');
+  })();
+
+  return {
+    userId: payload.sub,
+    role,
+    permissions: payload.permissions || [],
+  };
+}
+
+async function verifyToken(token: string): Promise<AuthenticatedUser> {
+  const isProd = config.server.nodeEnv === 'production';
+
+  if (isProd && config.cognito.userPoolId) {
+    // Production: Verify against Cognito JWKS (RS256)
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded || typeof decoded === 'string' || !decoded.header.kid) {
+      throw new UnauthorizedError('Invalid token format');
+    }
+
+    const signingKey = await getSigningKey(decoded.header.kid);
+    const expectedIssuer = `https://cognito-idp.${config.cognito.region}.amazonaws.com/${config.cognito.userPoolId}`;
+
+    const verifyOptions: jwt.VerifyOptions = {
+      issuer: expectedIssuer,
+      algorithms: ['RS256'],
+    };
+
+    if (config.cognito.clientId) {
+      verifyOptions.audience = config.cognito.clientId;
+    } else if (isProd) {
+      throw new UnauthorizedError('COGNITO_CLIENT_ID must be configured in production');
+    }
+
+    const payload = jwt.verify(token, signingKey, verifyOptions) as jwt.JwtPayload;
+    return extractUser(payload);
+  }
+
+  if (!isProd && process.env.ALLOW_DEV_AUTH === 'true') {
+    // Development: Verify signature with JWT_SECRET (HS256)
+    const payload = jwt.verify(token, config.jwt.secret, {
+      algorithms: ['HS256'],
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
+    }) as jwt.JwtPayload;
+
+    return extractUser(payload);
+  }
+
+  throw new UnauthorizedError(
+    'Authentication not configured: set COGNITO_USER_POOL_ID or run in development mode with ALLOW_DEV_AUTH=true'
+  );
 }
 
 /**
- * JWT authentication middleware.
- * Validates the Bearer token from the Authorization header and attaches
- * the decoded user to req.user.
+ * Authentication middleware.
  */
-export function authenticate(req: Request, res: Response, next: NextFunction): void {
+export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader) {
-    res.status(401).json({
-      success: false,
-      error: 'Authorization header is required',
-      timestamp: new Date().toISOString(),
-    });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    next(new UnauthorizedError('Missing or invalid Authorization header'));
     return;
   }
 
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    res.status(401).json({
-      success: false,
-      error: 'Authorization header must use Bearer scheme',
-      timestamp: new Date().toISOString(),
+  const token = authHeader.substring(7);
+
+  verifyToken(token)
+    .then((user) => {
+      req.user = user;
+      (req as any).requestId = (req as any).requestId ?? randomUUID();
+      next();
+    })
+    .catch((err) => {
+      if (err instanceof UnauthorizedError) {
+        next(err);
+      } else {
+        next(new UnauthorizedError('Invalid or expired token'));
+      }
     });
-    return;
-  }
-
-  const token = parts[1];
-
-  try {
-    const decoded = jwt.verify(token, config.jwt.secret, {
-      issuer: config.jwt.issuer,
-      audience: config.jwt.audience,
-    }) as JwtPayload;
-
-    const user: AuthenticatedUser = {
-      userId: decoded.sub,
-      role: decoded.role,
-      permissions: decoded.permissions || [],
-    };
-
-    req.user = user;
-    next();
-  } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
-      res.status(401).json({
-        success: false,
-        error: 'Token has expired',
-        timestamp: new Date().toISOString(),
-      });
-      return;
-    }
-
-    if (error instanceof jwt.JsonWebTokenError) {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid token',
-        timestamp: new Date().toISOString(),
-      });
-      return;
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Authentication error',
-      timestamp: new Date().toISOString(),
-    });
-  }
 }
 
 /**
  * Authorization middleware factory.
- * Checks that the authenticated user has at least one of the required roles.
  */
 export function authorize(...allowedRoles: AuthenticatedUser['role'][]) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -113,7 +171,6 @@ export function authorize(...allowedRoles: AuthenticatedUser['role'][]) {
 
 /**
  * Permission check middleware factory.
- * Checks that the authenticated user has the specified permission.
  */
 export function requirePermission(permission: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -127,7 +184,6 @@ export function requirePermission(permission: string) {
     }
 
     if (req.user.role === 'admin') {
-      // Admins bypass permission checks
       next();
       return;
     }
@@ -147,36 +203,25 @@ export function requirePermission(permission: string) {
 
 /**
  * Optional authentication middleware.
- * Attaches user if a valid token is present, but does not fail if absent.
  */
 export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     next();
     return;
   }
 
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    next();
-    return;
-  }
+  const token = authHeader.substring(7);
 
-  try {
-    const decoded = jwt.verify(parts[1], config.jwt.secret, {
-      issuer: config.jwt.issuer,
-      audience: config.jwt.audience,
-    }) as JwtPayload;
-
-    req.user = {
-      userId: decoded.sub,
-      role: decoded.role,
-      permissions: decoded.permissions || [],
-    };
-  } catch {
-    // Token invalid, proceed without user context
-  }
-
-  next();
+  verifyToken(token)
+    .then((user) => {
+      req.user = user;
+    })
+    .catch(() => {
+      // Token invalid, proceed without user context
+    })
+    .finally(() => {
+      next();
+    });
 }

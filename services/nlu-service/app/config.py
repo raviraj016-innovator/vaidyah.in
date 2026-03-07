@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import Field
+from functools import lru_cache
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,10 +27,10 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     host: str = "0.0.0.0"
-    port: int = 8003
+    port: int = 8002
 
     # ---------- CORS ----------
-    cors_origins: list[str] = Field(default=["*"])
+    cors_origins: list[str] = Field(default=["http://localhost:3000", "http://localhost:3001"])
 
     # ---------- AWS General ----------
     aws_region: str = Field(default="ap-south-1", alias="AWS_REGION")
@@ -71,11 +73,12 @@ class Settings(BaseSettings):
 
     # ---------- Authentication ----------
     jwt_secret_key: str = Field(
-        default="change-me-in-production", alias="JWT_SECRET_KEY"
+        default="dev-secret-do-not-use-in-production", alias="JWT_SECRET_KEY"
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_issuer: str = Field(default="vaidyah-auth", alias="JWT_ISSUER")
-    auth_enabled: bool = Field(default=False, alias="AUTH_ENABLED")
+    jwt_audience: str = Field(default="vaidyah", alias="JWT_AUDIENCE")
+    auth_enabled: bool = Field(default=True, alias="AUTH_ENABLED")
 
     # ---------- Rate Limiting ----------
     rate_limit_requests: int = Field(default=100, alias="RATE_LIMIT_REQUESTS")
@@ -85,11 +88,29 @@ class Settings(BaseSettings):
 
     # ---------- Downstream Services ----------
     clinical_service_url: str = Field(
-        default="http://clinical-service:8004", alias="CLINICAL_SERVICE_URL"
+        default="http://clinical-service:3001", alias="CLINICAL_SERVICE_URL"
     )
     voice_service_url: str = Field(
-        default="http://voice-service:8002", alias="VOICE_SERVICE_URL"
+        default="http://voice-service:8001", alias="VOICE_SERVICE_URL"
     )
 
+    @model_validator(mode="after")
+    def _check_production_secrets(self) -> "Settings":
+        if self.environment == "production":
+            import os
+            if not os.environ.get("JWT_SECRET_KEY"):
+                raise ValueError(
+                    "JWT_SECRET_KEY environment variable must be set explicitly "
+                    "in production to ensure consistency across processes."
+                )
+            if not self.auth_enabled:
+                raise ValueError(
+                    "AUTH_ENABLED must be True in production. "
+                    "Disabling authentication in production is not allowed."
+                )
+        return self
 
-settings = Settings()
+
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()

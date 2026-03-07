@@ -57,14 +57,11 @@
         }
       ],
       "expo-secure-store",
-      "expo-sqlite",
-      [
-        "react-native-reanimated/plugin"
-      ]
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {
-        "projectId": "vaidyah-nurse-tablet"
+        "projectId": "00000000-0000-0000-0000-000000000002"
       }
     }
   }

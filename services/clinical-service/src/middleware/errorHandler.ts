@@ -102,19 +102,21 @@ export function globalErrorHandler(
     details = err.details;
 
     if (!err.isOperational) {
-      console.error('[ERROR] Non-operational error:', err);
+      console.error('[ERROR] Non-operational error:', (err as Error).message);
     }
   } else {
-    // Unexpected errors - log full stack trace
-    console.error('[ERROR] Unhandled error:', err);
+    // Unexpected errors - log message only (no stack trace with PHI)
+    console.error('[ERROR] Unhandled error:', (err as Error).message);
   }
+
+  const isProduction = config.env === 'production';
 
   const response: ApiResponse = {
     success: false,
     error: {
       code,
-      message,
-      details: config.isDev ? details ?? err.stack : details,
+      message: isProduction && statusCode === 500 ? 'An unexpected error occurred' : message,
+      details: isProduction ? undefined : details,
     },
   };
 

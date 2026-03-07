@@ -7,7 +7,7 @@ import * as SecureStore from 'expo-secure-store';
 
 export const API_CONFIG = {
   /** Base URL – overridden via env in EAS builds */
-  BASE_URL: process.env.EXPO_PUBLIC_API_URL ?? 'https://api.vaidyah.health/v1',
+  BASE_URL: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080/v1',
 
   /** Request timeout in milliseconds */
   TIMEOUT: 30_000,
@@ -88,6 +88,16 @@ async function getRefreshToken(): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
+// Logout callback (avoids circular dependency with authStore)
+// ---------------------------------------------------------------------------
+
+let logoutCallback: (() => void) | null = null;
+
+export function setLogoutCallback(cb: () => void) {
+  logoutCallback = cb;
+}
+
+// ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
 
@@ -154,6 +164,7 @@ apiClient.interceptors.response.use(
         if (originalRequest.headers) {
           originalRequest.headers.Authorization = `Bearer ${token}`;
         }
+        originalRequest._retry = true; // Prevent infinite retry if retried request also gets 401
         return apiClient(originalRequest);
       });
     }
@@ -173,6 +184,9 @@ apiClient.interceptors.response.use(
       );
 
       const { token: newToken, refreshToken: newRefreshToken } = data;
+      if (!newToken || !newRefreshToken) {
+        throw new Error('Invalid refresh response: missing tokens');
+      }
       await storeTokens(newToken, newRefreshToken);
 
       processQueue(null, newToken);
@@ -182,8 +196,10 @@ apiClient.interceptors.response.use(
       }
       return apiClient(originalRequest);
     } catch (refreshError) {
-      processQueue(refreshError, null);
+      processQueue(refreshError as Error, null);
       await clearTokens();
+      // Force auth state update so UI transitions to login screen
+      await logoutCallback?.();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

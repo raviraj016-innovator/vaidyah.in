@@ -14,6 +14,7 @@ import io
 from typing import Any, AsyncIterator, Optional
 
 import boto3
+from botocore.exceptions import ClientError
 import structlog
 from cachetools import LRUCache
 
@@ -29,11 +30,10 @@ logger = structlog.get_logger("voice.services.polly")
 VOICE_MAP: dict[str, dict[str, str]] = {
     "en-IN": {"voice_id": "Kajal", "engine": "neural", "gender": "Female"},
     "hi-IN": {"voice_id": "Kajal", "engine": "neural", "gender": "Female"},
-    "bn-IN": {"voice_id": "Aditi", "engine": "standard", "gender": "Female"},
-    "ta-IN": {"voice_id": "Aditi", "engine": "standard", "gender": "Female"},
-    "te-IN": {"voice_id": "Aditi", "engine": "standard", "gender": "Female"},
-    "mr-IN": {"voice_id": "Aditi", "engine": "standard", "gender": "Female"},
 }
+
+# Fallback voice used when a language has no dedicated Polly voice
+_FALLBACK_VOICE: dict[str, str] = {"voice_id": "Kajal", "engine": "neural", "gender": "Female"}
 
 # Content type mapping
 CONTENT_TYPE_MAP: dict[str, str] = {
@@ -55,11 +55,11 @@ class AWSPollyService:
     def _get_client(self) -> Any:
         if self._client is None:
             kwargs: dict[str, Any] = {"region_name": self._settings.aws_region}
-            if self._settings.aws_access_key_id:
+            if self._settings.aws_access_key_id and self._settings.aws_secret_access_key:
                 kwargs["aws_access_key_id"] = self._settings.aws_access_key_id
                 kwargs["aws_secret_access_key"] = self._settings.aws_secret_access_key
-            if self._settings.aws_session_token:
-                kwargs["aws_session_token"] = self._settings.aws_session_token
+                if self._settings.aws_session_token:
+                    kwargs["aws_session_token"] = self._settings.aws_session_token
             self._client = boto3.client("polly", **kwargs)
         return self._client
 
@@ -70,12 +70,26 @@ class AWSPollyService:
     def get_voice_for_language(self, language: SupportedLanguage) -> Optional[str]:
         """Return the Polly VoiceId for the given language."""
         entry = VOICE_MAP.get(language.value)
-        return entry["voice_id"] if entry else None
+        if entry is None:
+            logger.warning(
+                "polly.voice_not_found_for_language",
+                language=language.value,
+                fallback_voice=_FALLBACK_VOICE["voice_id"],
+            )
+            entry = _FALLBACK_VOICE
+        return entry["voice_id"]
 
     def _get_engine_for_language(self, language: SupportedLanguage) -> str:
         """Return the Polly engine (neural/standard) for the given language."""
         entry = VOICE_MAP.get(language.value)
-        return entry["engine"] if entry else "standard"
+        if entry is None:
+            logger.warning(
+                "polly.engine_not_found_for_language",
+                language=language.value,
+                fallback_engine=_FALLBACK_VOICE["engine"],
+            )
+            entry = _FALLBACK_VOICE
+        return entry["engine"]
 
     # ------------------------------------------------------------------
     # SSML helpers
@@ -119,28 +133,46 @@ class AWSPollyService:
 
         words: mapping of word -> emphasis level ("strong", "moderate", "reduced")
         """
-        result = text
+        _VALID_LEVELS = {"strong", "moderate", "reduced", "none"}
+        escaped_text = _escape_ssml(text)
         for word, level in words.items():
-            result = result.replace(
-                word, f'<emphasis level="{level}">{word}</emphasis>'
+            if level not in _VALID_LEVELS:
+                continue
+            safe_word = _escape_ssml(word)
+            escaped_text = escaped_text.replace(
+                safe_word, f'<emphasis level="{level}">{safe_word}</emphasis>'
             )
-        return f"<speak>{result}</speak>"
+        return f"<speak>{escaped_text}</speak>"
 
     # ------------------------------------------------------------------
     # Cache
     # ------------------------------------------------------------------
 
-    def _cache_key(self, text: str, voice_id: str, output_format: str) -> str:
-        content = f"{text}|{voice_id}|{output_format}"
+    def _cache_key(
+        self,
+        text: str,
+        voice_id: str,
+        output_format: str,
+        sample_rate: str = "",
+        engine: str = "",
+        language_code: str = "",
+    ) -> str:
+        content = f"{text}|{voice_id}|{output_format}|{sample_rate}|{engine}|{language_code}"
         return hashlib.sha256(content.encode()).hexdigest()
 
     async def get_cached(
-        self, text: str, voice_id: str, output_format: str
+        self,
+        text: str,
+        voice_id: str,
+        output_format: str,
+        sample_rate: str = "",
+        engine: str = "",
+        language_code: str = "",
     ) -> Optional[dict[str, Any]]:
         """Return cached synthesis result if available."""
         if not self._settings.polly_cache_enabled:
             return None
-        key = self._cache_key(text, voice_id, output_format)
+        key = self._cache_key(text, voice_id, output_format, sample_rate, engine, language_code)
         return self._cache.get(key)
 
     async def cache_result(
@@ -149,11 +181,14 @@ class AWSPollyService:
         voice_id: str,
         output_format: str,
         result: dict[str, Any],
+        sample_rate: str = "",
+        engine: str = "",
+        language_code: str = "",
     ) -> None:
         """Store a synthesis result in the LRU cache."""
         if not self._settings.polly_cache_enabled:
             return
-        key = self._cache_key(text, voice_id, output_format)
+        key = self._cache_key(text, voice_id, output_format, sample_rate, engine, language_code)
         self._cache[key] = result
 
     # ------------------------------------------------------------------
@@ -203,14 +238,20 @@ class AWSPollyService:
             response = await loop.run_in_executor(
                 None, lambda: client.synthesize_speech(**params)
             )
-        except client.exceptions.TextLengthExceededException:
-            raise ValueError("Text exceeds Polly maximum length of 3000 characters")
+        except ClientError as polly_exc:
+            error_code = polly_exc.response.get("Error", {}).get("Code", "")
+            if error_code == "TextLengthExceededException":
+                raise ValueError("Text exceeds Polly maximum length of 3000 characters")
+            raise
         except Exception as exc:
             logger.error("polly.synthesize_failed", error=str(exc), exc_info=True)
             raise
 
         audio_stream = response["AudioStream"]
-        audio_bytes = await loop.run_in_executor(None, audio_stream.read)
+        try:
+            audio_bytes = await loop.run_in_executor(None, audio_stream.read)
+        finally:
+            audio_stream.close()
 
         content_type = CONTENT_TYPE_MAP.get(output_format, "audio/mpeg")
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -269,13 +310,16 @@ class AWSPollyService:
         audio_stream = response["AudioStream"]
         chunk_size = 4096
 
-        while True:
-            chunk = await loop.run_in_executor(
-                None, lambda: audio_stream.read(chunk_size)
-            )
-            if not chunk:
-                break
-            yield chunk
+        try:
+            while True:
+                chunk = await loop.run_in_executor(
+                    None, lambda: audio_stream.read(chunk_size)
+                )
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            audio_stream.close()
 
 
 def _escape_ssml(text: str) -> str:

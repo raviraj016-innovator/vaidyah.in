@@ -19,6 +19,7 @@ locals {
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+data "aws_partition" "current" {}
 
 # ── KMS Key for Encryption ──────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ resource "aws_kms_key" "main" {
         Sid    = "EnableRootAccountAccess"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+          AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
         Resource = "*"
@@ -134,10 +135,11 @@ module "dynamodb" {
 module "s3" {
   source = "./modules/s3"
 
-  project_name = var.project_name
-  environment  = var.environment
-  kms_key_arn  = aws_kms_key.main.arn
-  tags         = local.common_tags
+  project_name         = var.project_name
+  environment          = var.environment
+  kms_key_arn          = aws_kms_key.main.arn
+  cors_allowed_origins = var.environment == "prod" ? ["https://api.vaidyah.health", "https://admin.vaidyah.health", "https://app.vaidyah.health"] : ["http://localhost:3000"]
+  tags                 = local.common_tags
 }
 
 # ── OpenSearch ───────────────────────────────────────────────────────────────
@@ -150,7 +152,8 @@ module "opensearch" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   eks_security_group_id = module.eks.node_security_group_id
-  instance_type      = var.opensearch_instance_type
+  opensearch_access_role_arns = [module.eks.node_role_arn]
+  instance_type              = var.opensearch_instance_type
   instance_count     = var.opensearch_instance_count
   volume_size        = var.opensearch_volume_size
   engine_version     = var.opensearch_engine_version
@@ -168,6 +171,21 @@ module "cognito" {
   tags         = local.common_tags
 }
 
+# ── ElastiCache (Redis) ──────────────────────────────────────────────
+
+module "elasticache" {
+  source = "./modules/elasticache"
+
+  project_name           = var.project_name
+  environment            = var.environment
+  vpc_id                 = module.vpc.vpc_id
+  private_subnet_ids     = module.vpc.private_subnet_ids
+  app_security_group_ids = [module.eks.node_security_group_id]
+  node_type              = var.environment == "prod" ? "cache.r6g.large" : "cache.t3.micro"
+  auth_token             = var.redis_auth_token
+  tags                   = local.common_tags
+}
+
 # ── API Gateway ──────────────────────────────────────────────────────────────
 
 module "api_gateway" {
@@ -178,9 +196,15 @@ module "api_gateway" {
   stage_names     = var.api_gateway_stage_names
   domain_name     = var.domain_name
   certificate_arn = var.certificate_arn
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
   cognito_user_pool_arns = [
     module.cognito.providers_user_pool_arn,
     module.cognito.patients_user_pool_arn
+  ]
+  cognito_client_ids = [
+    module.cognito.providers_client_id,
+    module.cognito.patients_client_id
   ]
   tags = local.common_tags
 }

@@ -2,95 +2,128 @@
  * JWT authentication middleware.
  * Validates tokens issued by AWS Cognito or the dev JWT secret.
  * In production, verifies against the Cognito JWKS endpoint.
- * In development, accepts tokens signed with the JWT_SECRET.
+ * In development, verifies tokens signed with the JWT_SECRET.
  */
 
+import { randomUUID } from 'crypto';
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import jwksRsa from 'jwks-rsa';
 import { config } from '../config';
 import { AuthenticatedUser, AuthenticatedRequest, UserRole } from '../types';
 import { UnauthorizedError, ForbiddenError } from './errorHandler';
 
-/**
- * Simple base64url decode without external dependency.
- */
-function base64urlDecode(str: string): string {
-  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (base64.length % 4 !== 0) {
-    base64 += '=';
+const VALID_ROLES: readonly string[] = ['patient', 'nurse', 'doctor', 'admin', 'system'];
+function isValidRole(role: unknown): role is UserRole {
+  return typeof role === 'string' && VALID_ROLES.includes(role);
+}
+
+/** JWKS client for Cognito token verification (lazily initialized). */
+let jwksClient: jwksRsa.JwksClient | null = null;
+
+function getJwksClient(): jwksRsa.JwksClient {
+  if (!jwksClient) {
+    const issuer = `https://cognito-idp.${config.cognito.region}.amazonaws.com/${config.cognito.userPoolId}`;
+    jwksClient = jwksRsa({
+      jwksUri: `${issuer}/.well-known/jwks.json`,
+      cache: true,
+      cacheMaxAge: 600_000, // 10 minutes
+      rateLimit: true,
+      jwksRequestsPerMinute: 10,
+    });
   }
-  return Buffer.from(base64, 'base64').toString('utf-8');
+  return jwksClient;
 }
 
 /**
- * Decode JWT payload without verification (for dev mode).
+ * Retrieve the signing key from the JWKS endpoint for a given key ID.
  */
-function decodeJwtPayload(token: string): Record<string, unknown> {
-  const parts = token.split('.');
-  if (parts.length !== 3) {
-    throw new Error('Invalid JWT format');
+function getSigningKey(kid: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    getJwksClient().getSigningKey(kid, (err, key) => {
+      if (err) {
+        reject(new UnauthorizedError('Unable to retrieve signing key'));
+        return;
+      }
+      if (!key) {
+        reject(new UnauthorizedError('Signing key not found'));
+        return;
+      }
+      resolve(key.getPublicKey());
+    });
+  });
+}
+
+/**
+ * Extract user claims from a verified JWT payload.
+ */
+function extractUser(payload: jwt.JwtPayload): AuthenticatedUser {
+  if (!payload.sub) {
+    throw new UnauthorizedError('Token missing required "sub" claim');
   }
-  const payload = parts[1];
-  if (!payload) {
-    throw new Error('Invalid JWT: missing payload');
-  }
-  return JSON.parse(base64urlDecode(payload));
+  return {
+    sub: payload.sub,
+    email: (payload.email as string) ?? '',
+    name: (payload.name as string) ?? (payload['cognito:username'] as string) ?? '',
+    role: (() => {
+      const customRole = payload['custom:role'] as string;
+      if (isValidRole(customRole)) return customRole as UserRole;
+      const directRole = payload.role as string;
+      if (isValidRole(directRole)) return directRole as UserRole;
+      throw new UnauthorizedError('Token missing valid role claim');
+    })(),
+    facilityId: (payload['custom:facilityId'] as string) ?? (payload.facilityId as string) ?? undefined,
+    iat: payload.iat,
+    exp: payload.exp,
+  };
 }
 
 /**
  * Verify and decode the JWT from the Authorization header.
- * In development mode, decodes without cryptographic verification.
- * In production, this should verify against Cognito JWKS.
+ * Production: Verifies signature against Cognito JWKS.
+ * Development: Verifies signature using the JWT_SECRET.
  */
 async function verifyToken(token: string): Promise<AuthenticatedUser> {
   if (config.isProd && config.cognito.userPoolId) {
     // Production: Verify against Cognito JWKS
-    // In a full implementation, this would use jwks-rsa to fetch the public key
-    // and jsonwebtoken.verify() to validate the signature.
-    // For now, we decode and validate the structure.
-    const payload = decodeJwtPayload(token);
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded || typeof decoded === 'string' || !decoded.header.kid) {
+      throw new UnauthorizedError('Invalid token format');
+    }
+
+    const signingKey = await getSigningKey(decoded.header.kid);
 
     const expectedIssuer = `https://cognito-idp.${config.cognito.region}.amazonaws.com/${config.cognito.userPoolId}`;
-    if (payload['iss'] !== expectedIssuer) {
-      throw new UnauthorizedError('Invalid token issuer');
-    }
 
-    if (config.cognito.clientId && payload['client_id'] !== config.cognito.clientId && payload['aud'] !== config.cognito.clientId) {
-      throw new UnauthorizedError('Invalid token audience');
-    }
-
-    const exp = payload['exp'] as number | undefined;
-    if (exp && exp < Math.floor(Date.now() / 1000)) {
-      throw new UnauthorizedError('Token has expired');
-    }
-
-    return {
-      sub: payload['sub'] as string,
-      email: (payload['email'] as string) ?? '',
-      name: (payload['name'] as string) ?? (payload['cognito:username'] as string) ?? '',
-      role: (payload['custom:role'] as UserRole) ?? 'patient',
-      facilityId: payload['custom:facilityId'] as string | undefined,
-      iat: payload['iat'] as number | undefined,
-      exp: payload['exp'] as number | undefined,
+    const verifyOptions: jwt.VerifyOptions = {
+      issuer: expectedIssuer,
+      algorithms: ['RS256'],
     };
+
+    if (config.cognito.clientId) {
+      verifyOptions.audience = config.cognito.clientId;
+    } else if (config.isProd) {
+      throw new UnauthorizedError('COGNITO_CLIENT_ID must be configured in production for audience validation');
+    }
+
+    const payload = jwt.verify(token, signingKey, verifyOptions) as jwt.JwtPayload;
+
+    return extractUser(payload);
   }
 
-  // Development: Decode without full cryptographic verification
-  const payload = decodeJwtPayload(token);
+  if (config.isDev && process.env.ALLOW_DEV_AUTH === 'true') {
+    // Development: Verify signature with JWT_SECRET
+    const payload = jwt.verify(token, config.jwt.secret, {
+      algorithms: ['HS256'],
+    }) as jwt.JwtPayload;
 
-  const exp = payload['exp'] as number | undefined;
-  if (exp && exp < Math.floor(Date.now() / 1000)) {
-    throw new UnauthorizedError('Token has expired');
+    return extractUser(payload);
   }
 
-  return {
-    sub: (payload['sub'] as string) ?? 'dev-user',
-    email: (payload['email'] as string) ?? 'dev@vaidyah.local',
-    name: (payload['name'] as string) ?? 'Dev User',
-    role: (payload['role'] as UserRole) ?? (payload['custom:role'] as UserRole) ?? 'doctor',
-    facilityId: payload['facilityId'] as string | undefined ?? payload['custom:facilityId'] as string | undefined,
-    iat: payload['iat'] as number | undefined,
-    exp: payload['exp'] as number | undefined,
-  };
+  // Non-dev, non-prod (e.g. staging) without Cognito configured
+  throw new UnauthorizedError(
+    'Authentication not configured: set COGNITO_USER_POOL_ID or run in development mode'
+  );
 }
 
 /**
@@ -104,20 +137,6 @@ export function authenticate(
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    // In development, allow requests without auth for easier testing
-    if (config.isDev) {
-      const authReq = req as AuthenticatedRequest;
-      authReq.user = {
-        sub: 'dev-user-id',
-        email: 'dev@vaidyah.local',
-        name: 'Development User',
-        role: 'doctor',
-        facilityId: 'dev-facility-id',
-      };
-      authReq.requestId = authReq.requestId ?? crypto.randomUUID();
-      next();
-      return;
-    }
     next(new UnauthorizedError('Missing or invalid Authorization header'));
     return;
   }
@@ -128,7 +147,7 @@ export function authenticate(
     .then((user) => {
       const authReq = req as AuthenticatedRequest;
       authReq.user = user;
-      authReq.requestId = authReq.requestId ?? crypto.randomUUID();
+      authReq.requestId = authReq.requestId ?? randomUUID();
       next();
     })
     .catch((err) => {
