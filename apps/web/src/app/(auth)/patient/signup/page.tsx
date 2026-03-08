@@ -26,7 +26,7 @@ export default function PatientSignupPage() {
       setSessionId(data.session_id);
       setPhone(values.phone);
       setCurrentStep(1);
-      message.success('OTP sent successfully! (Dev mode: use any 6-digit code)');
+      message.success('OTP sent successfully!');
     } catch (error: any) {
       message.error(error.response?.data?.error?.message || 'Failed to send OTP');
     } finally {

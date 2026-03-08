@@ -133,9 +133,9 @@ export default function PatientProfilePage() {
 
   // Sync local state when user changes in store
   useEffect(() => {
-    setConditions(user?.conditions ?? ['Type 2 Diabetes', 'Hypertension']);
-    setMedications(user?.medications ?? ['Metformin 500mg', 'Amlodipine 5mg']);
-    setAllergies(user?.allergies ?? ['Penicillin']);
+    setConditions(user?.conditions ?? []);
+    setMedications(user?.medications ?? []);
+    setAllergies(user?.allergies ?? []);
   }, [user]);
 
   const userName = user?.name ?? 'Patient User';

@@ -212,7 +212,7 @@ export default function TriageResultPage() {
           style={{ marginBottom: 24 }}
         >
           {triageResult.differentialDiagnoses.map((dx, index) => (
-            <div key={index} style={{ marginBottom: index < triageResult.differentialDiagnoses!.length - 1 ? 16 : 0 }}>
+            <div key={index} style={{ marginBottom: index < (triageResult.differentialDiagnoses?.length ?? 0) - 1 ? 16 : 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Typography.Text strong>{dx.name}</Typography.Text>
                 <Typography.Text
@@ -322,7 +322,7 @@ export default function TriageResultPage() {
         <Typography.Paragraph style={{ fontSize: 15, margin: 0 }}>
           {language === 'hi' && triageResult.recommendationHi
             ? triageResult.recommendationHi
-            : triageResult.recommendation}
+            : triageResult.recommendation ?? ''}
         </Typography.Paragraph>
         {triageResult.referralType && (
           <>

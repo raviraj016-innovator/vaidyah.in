@@ -441,9 +441,9 @@ function ConsultationPageInner() {
     if (emotionEntries.length === 0) return null;
     const aggregated: Record<string, number[]> = {};
     for (const entry of emotionEntries) {
-      for (const [emotion, score] of Object.entries(entry.emotions!)) {
+      for (const [emotion, score] of Object.entries(entry.emotions ?? {})) {
         if (!aggregated[emotion]) aggregated[emotion] = [];
-        aggregated[emotion]!.push(score);
+        aggregated[emotion]?.push(score);
       }
     }
     const averaged: Record<string, number> = {};

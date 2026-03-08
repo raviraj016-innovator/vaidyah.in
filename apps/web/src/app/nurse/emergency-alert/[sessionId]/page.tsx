@@ -530,7 +530,7 @@ export default function EmergencyAlertPage() {
                 children: (
                   <div>
                     <Typography.Text style={{ fontSize: 13 }}>
-                      {language === 'hi' ? item.eventHi : item.event}
+                      {language === 'hi' ? (item.eventHi ?? item.event) : item.event}
                     </Typography.Text>
                     <br />
                     <Typography.Text type="secondary" style={{ fontSize: 11 }}>

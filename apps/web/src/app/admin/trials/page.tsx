@@ -194,8 +194,8 @@ export default function AdminTrialsPage() {
 
   // Filter trials locally for search
   const filteredTrials = trials.filter((t) => {
-    const matchesSearch = !search || t.title.toLowerCase().includes(search.toLowerCase())
-      || t.nct_id.toLowerCase().includes(search.toLowerCase())
+    const matchesSearch = !search || (t.title ?? '').toLowerCase().includes(search.toLowerCase())
+      || (t.nct_id ?? '').toLowerCase().includes(search.toLowerCase())
       || t.conditions?.some(c => c.toLowerCase().includes(search.toLowerCase()));
     const matchesStatus = !statusFilter || t.status?.toLowerCase().includes(statusFilter.toLowerCase());
     return matchesSearch && matchesStatus;

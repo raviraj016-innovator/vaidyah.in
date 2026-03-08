@@ -1,10 +1,15 @@
+# =============================================================================
+# Production Docker Compose — STANDALONE file (do NOT overlay with docker-compose.yml)
+# Usage: docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# =============================================================================
+
 services:
-  # ============ DATABASES ============
+  # ============ CACHE ============
   redis:
     image: redis:7-alpine
     container_name: vaidyah-redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    # NOT exposed externally — internal Docker network only
     volumes:
       - redis_data:/data
     healthcheck:
@@ -17,162 +22,189 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     container_name: vaidyah-livekit
+    restart: unless-stopped
     ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
+      - "7880:7880"       # HTTP / WebSocket
+      - "7881:7881"       # RTC (TCP)
+      - "7882:7882/udp"   # RTC (UDP)
     environment:
-      - "LIVEKIT_KEYS=API0ce04650060157bb: TSkOoXCZmkOtumFzOc94HNKNG+jUHcfOwChavwhOZIbV0Yzw"
-    command: >
-      --dev
-      --bind 0.0.0.0
-      --port 7880
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}"
+    command: --bind 0.0.0.0 --port 7880
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:7880 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
 
-  # ============ BACKEND SERVICES ============
+  # ============ API GATEWAY (only externally exposed backend port) ============
   api-gateway:
     build:
       context: ./services/api-gateway
       dockerfile: Dockerfile
     container_name: vaidyah-api-gateway
+    restart: unless-stopped
     ports:
-      - "4000:3000"
+      - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - DB_HOST=vaidyah-prod-postgres.c38oame2yz5i.ap-south-1.rds.amazonaws.com
-      - DB_PORT=5432
-      - DB_NAME=vaidyah
-      - DB_USER=vaidyah_admin
-      - DB_PASSWORD=9mj$$br7_f6yjtwUZaEoD](ywB!fuX<+x
-      - DB_SSL=true
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET=pjv6fJJAL3+3t+CWliaM/MecYOfOs2CiwQQ7PPyNqMLHYpR6WCcYAUfgyZZZQx6N
-      - VOICE_SERVICE_URL=http://voice-service:8001
-      - NLU_SERVICE_URL=http://nlu-service:8002
-      - CLINICAL_SERVICE_URL=http://clinical-service:3001
-      - TRIAL_SERVICE_URL=http://trial-service:8003
-      - INTEGRATION_SERVICE_URL=http://integration-service:3002
-      - TELEMEDICINE_SERVICE_URL=http://telemedicine-service:8004
-      - AWS_REGION=ap-south-1
+      NODE_ENV: production
+      # Database (RDS)
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-vaidyah}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SSL: "true"
+      # Redis (internal)
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # Auth
+      JWT_SECRET: ${JWT_SECRET}
+      # CORS — Vercel rewrites are server-side so browser never hits this directly,
+      # but WebSocket and direct calls need it
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      # Internal service URLs (Docker network names)
+      VOICE_SERVICE_URL: http://voice-service:8001
+      NLU_SERVICE_URL: http://nlu-service:8002
+      CLINICAL_SERVICE_URL: http://clinical-service:3001
+      TRIAL_SERVICE_URL: http://trial-service:8003
+      INTEGRATION_SERVICE_URL: http://integration-service:3002
+      TELEMEDICINE_SERVICE_URL: http://telemedicine-service:8004
+      # AWS
+      AWS_REGION: ap-south-1
     depends_on:
       redis:
         condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/health || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 30s
 
+  # ============ VOICE SERVICE (Python — has curl, NOT wget) ============
   voice-service:
     build:
       context: ./services/voice-service
       dockerfile: Dockerfile
     container_name: vaidyah-voice-service
-    ports:
-      - "8001:8001"
+    restart: unless-stopped
+    # No ports exposed — only reachable via api-gateway
     environment:
-      - AWS_REGION=ap-south-1
-      - S3_AUDIO_BUCKET=vaidyah-prod-voice-recordings
+      ENVIRONMENT: production
+      AWS_REGION: ap-south-1
+      S3_AUDIO_BUCKET: ${S3_AUDIO_BUCKET:-vaidyah-prod-voice-recordings}
+      JWT_SECRET_KEY: ${JWT_SECRET}
+      AUTH_ENABLED: "true"
+      CORS_ORIGINS: '["https://vaidyah.in","https://vaidyah.vercel.app"]'
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8001/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 20s
 
+  # ============ NLU SERVICE (Python — has curl, NOT wget) ============
   nlu-service:
     build:
       context: ./services/nlu-service
       dockerfile: Dockerfile
     container_name: vaidyah-nlu-service
-    ports:
-      - "8002:8002"
+    restart: unless-stopped
     environment:
-      - AWS_REGION=ap-south-1
-      - BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+      ENVIRONMENT: production
+      AWS_REGION: ap-south-1
+      BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+      JWT_SECRET_KEY: ${JWT_SECRET}
+      AUTH_ENABLED: "true"
+      CORS_ORIGINS: '["https://vaidyah.in","https://vaidyah.vercel.app"]'
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8002/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 20s
 
+  # ============ CLINICAL SERVICE (Node — has wget via Alpine) ============
   clinical-service:
     build:
       context: ./services/clinical-service
       dockerfile: Dockerfile
     container_name: vaidyah-clinical-service
-    ports:
-      - "3001:3001"
+    restart: unless-stopped
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://vaidyah_admin:9mj%24br7_f6yjtwUZaEoD%5D%28ywB%21fuX%3C%2Bx@vaidyah-prod-postgres.c38oame2yz5i.ap-south-1.rds.amazonaws.com:5432/vaidyah?sslmode=require
-      - JWT_SECRET=pjv6fJJAL3+3t+CWliaM/MecYOfOs2CiwQQ7PPyNqMLHYpR6WCcYAUfgyZZZQx6N
-      - NLU_SERVICE_URL=http://nlu-service:8002
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      NLU_SERVICE_URL: http://nlu-service:8002
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3001/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
+  # ============ TRIAL SERVICE (Python — has curl, NOT wget) ============
   trial-service:
     build:
       context: ./services/trial-service
       dockerfile: Dockerfile
     container_name: vaidyah-trial-service
-    ports:
-      - "8003:8003"
+    restart: unless-stopped
     environment:
-      - AWS_REGION=ap-south-1
-      - DATABASE_URL=postgresql://vaidyah_admin:9mj%24br7_f6yjtwUZaEoD%5D%28ywB%21fuX%3C%2Bx@vaidyah-prod-postgres.c38oame2yz5i.ap-south-1.rds.amazonaws.com:5432/vaidyah?sslmode=require
+      ENVIRONMENT: production
+      AWS_REGION: ap-south-1
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: '["https://vaidyah.in","https://vaidyah.vercel.app"]'
+    volumes:
+      - ./clinical-trials.csv:/data/clinical-trials.csv:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8003/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8003/health || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 30s
 
+  # ============ INTEGRATION SERVICE (Node — has curl installed) ============
   integration-service:
     build:
       context: ./services/integration-service
       dockerfile: Dockerfile
     container_name: vaidyah-integration-service
-    ports:
-      - "3002:3002"
+    restart: unless-stopped
     environment:
-      - NODE_ENV=production
-      - DB_HOST=vaidyah-prod-postgres.c38oame2yz5i.ap-south-1.rds.amazonaws.com
-      - DB_PORT=5432
-      - DB_NAME=vaidyah
-      - DB_USER=vaidyah_admin
-      - DB_PASSWORD=9mj$$br7_f6yjtwUZaEoD](ywB!fuX<+x
-      - DB_SSL=true
-      - JWT_SECRET=pjv6fJJAL3+3t+CWliaM/MecYOfOs2CiwQQ7PPyNqMLHYpR6WCcYAUfgyZZZQx6N
+      NODE_ENV: production
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-vaidyah}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_SSL: "true"
+      JWT_SECRET: ${JWT_SECRET}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3002/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3002/health || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
+      start_period: 20s
 
+  # ============ TELEMEDICINE SERVICE (Node — has wget via Alpine) ============
   telemedicine-service:
     build:
       context: ./services/telemedicine-service
       dockerfile: Dockerfile
     container_name: vaidyah-telemedicine-service
-    ports:
-      - "8004:8004"
+    restart: unless-stopped
     environment:
-      - NODE_ENV=production
-      - PORT=8004
-      - AWS_REGION=ap-south-1
-      - JWT_SECRET=pjv6fJJAL3+3t+CWliaM/MecYOfOs2CiwQQ7PPyNqMLHYpR6WCcYAUfgyZZZQx6N
-      - CORS_ORIGINS=https://vaidyah.in,http://localhost:3000
-      - LIVEKIT_URL=http://livekit:7880
-      - LIVEKIT_WS_URL=ws://35.154.160.97:7880
-      - LIVEKIT_API_KEY=API0ce04650060157bb
-      - LIVEKIT_API_SECRET=TSkOoXCZmkOtumFzOc94HNKNG+jUHcfOwChavwhOZIbV0Yzw
+      NODE_ENV: production
+      PORT: "8004"
+      AWS_REGION: ap-south-1
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_WS_URL: ${LIVEKIT_WS_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
     depends_on:
       - livekit
     healthcheck:
@@ -180,6 +212,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 20s
 
 volumes:
   redis_data:

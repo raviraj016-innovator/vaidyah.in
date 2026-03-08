@@ -248,7 +248,7 @@ export default function TrialDetailPage() {
       okText: language === 'hi' ? 'हाँ, भेजें' : 'Yes, Send',
       cancelText: language === 'hi' ? 'रद्द करें' : 'Cancel',
       onOk: async () => {
-        try { await api.post(`/trials/${trialId}/interest`); } catch (err) { console.error('Failed to express interest:', err); throw err; }
+        try { await api.post(`/trials/${trialId}/interest`); } catch (err) { console.error('Failed to express interest:', err); message.error(language === 'hi' ? 'रुचि भेजने में विफल' : 'Failed to send interest'); return; }
         setInterestSent(true);
         message.success(
           language === 'hi'

@@ -21,6 +21,7 @@ import {
   HomeOutlined,
 } from '@ant-design/icons';
 import { authApi } from '@/lib/api/client';
+import api from '@/lib/api/client';
 
 const { Title, Text } = Typography;
 
@@ -48,7 +49,7 @@ export default function NurseOnboardingPage() {
   const fetchCenters = async () => {
     setCentersLoading(true);
     try {
-      const { data } = await authApi.get('/centers');
+      const { data } = await api.get('/centers');
       setCenters(data.data || []);
     } catch (error) {
       console.error('Failed to fetch centers:', error);

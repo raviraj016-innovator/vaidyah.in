@@ -215,10 +215,10 @@ jobs:
               docker pull "$IMAGE"
             done
 
-            # Restart services via Docker Compose
+            # Restart services via standalone prod compose
             cd /opt/vaidyah
-            docker compose pull
-            docker compose up -d --remove-orphans
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             echo "Deployment complete"
 

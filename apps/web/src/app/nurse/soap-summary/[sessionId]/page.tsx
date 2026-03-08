@@ -71,10 +71,10 @@ export default function SOAPSummaryPage() {
     const apiSoap = apiSoapData?.data;
     if (apiSoap && !storeSoap) {
       const parsed: SOAPNote = {
-        subjective: typeof apiSoap.subjective === 'string' ? JSON.parse(apiSoap.subjective) : apiSoap.subjective,
-        objective: typeof apiSoap.objective === 'string' ? JSON.parse(apiSoap.objective) : apiSoap.objective,
-        assessment: typeof apiSoap.assessment === 'string' ? JSON.parse(apiSoap.assessment) : apiSoap.assessment,
-        plan: typeof apiSoap.plan === 'string' ? JSON.parse(apiSoap.plan) : apiSoap.plan,
+        subjective: typeof apiSoap.subjective === 'string' ? (() => { try { return JSON.parse(apiSoap.subjective); } catch { return { patientNarrative: apiSoap.subjective }; } })() : apiSoap.subjective,
+        objective: typeof apiSoap.objective === 'string' ? (() => { try { return JSON.parse(apiSoap.objective); } catch { return { vitalSigns: apiSoap.objective }; } })() : apiSoap.objective,
+        assessment: typeof apiSoap.assessment === 'string' ? (() => { try { return JSON.parse(apiSoap.assessment); } catch { return { primaryDiagnosis: apiSoap.assessment }; } })() : apiSoap.assessment,
+        plan: typeof apiSoap.plan === 'string' ? (() => { try { return JSON.parse(apiSoap.plan); } catch { return { followUp: apiSoap.plan }; } })() : apiSoap.plan,
       };
       setSoapNote(parsed);
       if (apiSoap.is_reviewed) setSoapStatus('reviewed');
@@ -98,7 +98,7 @@ export default function SOAPSummaryPage() {
           chiefComplaint: values.chiefComplaint,
           historyOfPresentIllness: values.historyOfPresentIllness,
           reviewOfSystems: values.reviewOfSystems.split('\n').filter(Boolean),
-          patientNarrative: soapNote?.subjective.patientNarrative ?? '',
+          patientNarrative: soapNote?.subjective?.patientNarrative ?? '',
         },
         objective: {
           vitalSigns: values.vitalSigns,
@@ -166,21 +166,21 @@ export default function SOAPSummaryPage() {
   const handleToggleEdit = () => {
     if (!isEditing) {
       form.setFieldsValue({
-        chiefComplaint: soapNote.subjective.chiefComplaint,
-        historyOfPresentIllness: soapNote.subjective.historyOfPresentIllness,
-        reviewOfSystems: soapNote.subjective.reviewOfSystems.join('\n'),
-        vitalSigns: soapNote.objective.vitalSigns,
-        physicalExamination: soapNote.objective.physicalExamination,
-        observations: soapNote.objective.observations.join('\n'),
-        primaryDiagnosis: soapNote.assessment.primaryDiagnosis,
-        differentialDiagnoses: soapNote.assessment.differentialDiagnoses.join('\n'),
-        severity: soapNote.assessment.severity,
-        clinicalReasoning: soapNote.assessment.clinicalReasoning,
-        medications: soapNote.plan.medications.join('\n'),
-        investigations: soapNote.plan.investigations.join('\n'),
-        referrals: soapNote.plan.referrals.join('\n'),
-        followUp: soapNote.plan.followUp,
-        patientEducation: soapNote.plan.patientEducation.join('\n'),
+        chiefComplaint: soapNote?.subjective?.chiefComplaint,
+        historyOfPresentIllness: soapNote?.subjective?.historyOfPresentIllness,
+        reviewOfSystems: soapNote?.subjective?.reviewOfSystems?.join('\n'),
+        vitalSigns: soapNote?.objective?.vitalSigns,
+        physicalExamination: soapNote?.objective?.physicalExamination,
+        observations: soapNote?.objective?.observations?.join('\n'),
+        primaryDiagnosis: soapNote?.assessment?.primaryDiagnosis,
+        differentialDiagnoses: soapNote?.assessment?.differentialDiagnoses?.join('\n'),
+        severity: soapNote?.assessment?.severity,
+        clinicalReasoning: soapNote?.assessment?.clinicalReasoning,
+        medications: soapNote?.plan?.medications?.join('\n'),
+        investigations: soapNote?.plan?.investigations?.join('\n'),
+        referrals: soapNote?.plan?.referrals?.join('\n'),
+        followUp: soapNote?.plan?.followUp,
+        patientEducation: soapNote?.plan?.patientEducation?.join('\n'),
       });
     }
     setIsEditing(!isEditing);

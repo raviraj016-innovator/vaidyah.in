@@ -123,7 +123,7 @@ export function AdminSidebar({ onCollapse, inline = false }: AdminSidebarProps) 
         left: inline ? undefined : 0,
         top: inline ? undefined : 0,
         bottom: inline ? undefined : 0,
-        zIndex: inline ? undefined : 100,
+        zIndex: inline ? undefined : 90,
         display: 'flex',
         flexDirection: 'column',
       }}

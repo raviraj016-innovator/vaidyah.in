@@ -236,7 +236,7 @@ export default function PatientIntakePage() {
               form={form}
               layout="vertical"
               onFinish={handleSubmit}
-              requiredMark="optional"
+              requiredMark={false}
               size="large"
             >
               <Row gutter={16}>
@@ -444,7 +444,7 @@ export default function PatientIntakePage() {
                             patient.gender === 'Male' ? '#2563eb' : '#db2777',
                         }}
                       >
-                        {patient.name.charAt(0)}
+                        {patient.name?.charAt(0) ?? 'P'}
                       </Avatar>
                     }
                     title={

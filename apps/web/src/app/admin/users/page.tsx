@@ -167,11 +167,16 @@ export default function UsersPage() {
   const handleDeactivate = async (id: string) => {
     const user = users.find((u) => u.id === id);
     const newStatus = user?.status === 'active' ? 'inactive' : 'active';
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, status: newStatus } : u)),
-    );
-    messageApi.success('User status updated');
-    try { await api.patch(endpoints.users.update(id), { status: newStatus }); } catch (err) { console.error('Failed to update user status:', err); throw err; }
+    try {
+      await api.patch(endpoints.users.update(id), { status: newStatus });
+      setUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, status: newStatus } : u)),
+      );
+      messageApi.success('User status updated');
+    } catch (err) {
+      console.error('Failed to update user status:', err);
+      messageApi.error('Failed to update user status');
+    }
     queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
   };
 
@@ -181,24 +186,34 @@ export default function UsersPage() {
       const centerName = centerOption?.label ?? values.centerId;
 
       if (editingUser) {
-        setUsers((prev) =>
-          prev.map((u) =>
-            u.id === editingUser.id ? { ...u, ...values, center: centerName } : u,
-          ),
-        );
-        messageApi.success('User updated successfully');
-        try { await api.put(endpoints.users.update(editingUser.id), values); } catch (err) { console.error('Failed to update user:', err); throw err; }
+        try {
+          await api.put(endpoints.users.update(editingUser.id), values);
+          setUsers((prev) =>
+            prev.map((u) =>
+              u.id === editingUser.id ? { ...u, ...values, center: centerName } : u,
+            ),
+          );
+          messageApi.success('User updated successfully');
+        } catch (err) {
+          console.error('Failed to update user:', err);
+          messageApi.error('Failed to update user');
+        }
       } else {
-        const newUser: UserRecord = {
-          ...values,
-          id: `u-${Date.now()}`,
-          center: centerName,
-          lastActive: 'Never',
-          status: 'active',
-        };
-        setUsers((prev) => [newUser, ...prev]);
-        messageApi.success('User created successfully');
-        try { await api.post(endpoints.users.create, values); } catch (err) { console.error('Failed to create user:', err); throw err; }
+        try {
+          await api.post(endpoints.users.create, values);
+          const newUser: UserRecord = {
+            ...values,
+            id: `u-${Date.now()}`,
+            center: centerName,
+            lastActive: 'Never',
+            status: 'active',
+          };
+          setUsers((prev) => [newUser, ...prev]);
+          messageApi.success('User created successfully');
+        } catch (err) {
+          console.error('Failed to create user:', err);
+          messageApi.error('Failed to create user');
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       setModalOpen(false);

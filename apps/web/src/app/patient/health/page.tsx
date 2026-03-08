@@ -107,9 +107,9 @@ export default function HealthDataPage() {
     setLoading(true);
     try {
       const { data } = await api.get('/api/v1/patient/health/summary');
-      if (data?.metrics) setMetrics(data.metrics);
-      if (data?.alerts) setAlerts(data.alerts);
-      if (data?.devices) setDevices(data.devices);
+      if (Array.isArray(data?.metrics)) setMetrics(data.metrics);
+      if (Array.isArray(data?.alerts)) setAlerts(data.alerts);
+      if (Array.isArray(data?.devices)) setDevices(data.devices);
     } catch (err) {
       console.error('Failed to fetch health data:', err);
       message.error(
@@ -215,10 +215,10 @@ export default function HealthDataPage() {
               </Tag>
               <div style={{ marginTop: 4 }}>
                 <Typography.Text type="secondary" style={{ fontSize: 10 }}>
-                  {new Date(metric.lastUpdated).toLocaleTimeString(
+                  {metric.lastUpdated ? new Date(metric.lastUpdated).toLocaleTimeString(
                     language === 'hi' ? 'hi-IN' : 'en-IN',
                     { hour: '2-digit', minute: '2-digit' },
-                  )}
+                  ) : 'N/A'}
                 </Typography.Text>
               </div>
             </Card>

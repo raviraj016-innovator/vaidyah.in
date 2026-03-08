@@ -147,9 +147,14 @@ export default function CentersPage() {
 
   // Delete center
   const handleDelete = async (id: string) => {
-    setCenters((prev) => prev.filter((c) => c.id !== id));
-    messageApi.success('Center deleted successfully');
-    try { await api.delete(endpoints.centers.delete(id)); } catch (err) { console.error('Failed to delete center:', err); throw err; }
+    try {
+      await api.delete(endpoints.centers.delete(id));
+      setCenters((prev) => prev.filter((c) => c.id !== id));
+      messageApi.success('Center deleted successfully');
+    } catch (err) {
+      console.error('Failed to delete center:', err);
+      messageApi.error('Failed to delete center');
+    }
     queryClient.invalidateQueries({ queryKey: ['admin', 'centers'] });
   };
 
@@ -157,26 +162,36 @@ export default function CentersPage() {
   const handleSave = () => {
     form.validateFields().then(async (values) => {
       if (editingCenter) {
-        setCenters((prev) =>
-          prev.map((c) =>
-            c.id === editingCenter.id ? { ...c, ...values } : c,
-          ),
-        );
-        messageApi.success('Center updated successfully');
-        try { await api.put(endpoints.centers.update(editingCenter.id), values); } catch (err) { console.error('Failed to update center:', err); throw err; }
+        try {
+          await api.put(endpoints.centers.update(editingCenter.id), values);
+          setCenters((prev) =>
+            prev.map((c) =>
+              c.id === editingCenter.id ? { ...c, ...values } : c,
+            ),
+          );
+          messageApi.success('Center updated successfully');
+        } catch (err) {
+          console.error('Failed to update center:', err);
+          messageApi.error('Failed to update center');
+        }
       } else {
-        const newCenter: HealthCenter = {
-          ...values,
-          id: `hc-${Date.now()}`,
-          staffCount: 0,
-          dailyAvg: 0,
-          totalPatients: 0,
-          activeSince: new Date().toISOString().split('T')[0],
-          lastSync: 'Never',
-        };
-        setCenters((prev) => [newCenter, ...prev]);
-        messageApi.success('Center created successfully');
-        try { await api.post(endpoints.centers.create, values); } catch (err) { console.error('Failed to create center:', err); throw err; }
+        try {
+          await api.post(endpoints.centers.create, values);
+          const newCenter: HealthCenter = {
+            ...values,
+            id: `hc-${Date.now()}`,
+            staffCount: 0,
+            dailyAvg: 0,
+            totalPatients: 0,
+            activeSince: new Date().toISOString().split('T')[0],
+            lastSync: 'Never',
+          };
+          setCenters((prev) => [newCenter, ...prev]);
+          messageApi.success('Center created successfully');
+        } catch (err) {
+          console.error('Failed to create center:', err);
+          messageApi.error('Failed to create center');
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['admin', 'centers'] });
       setModalOpen(false);

@@ -115,8 +115,8 @@ export default function SystemHealthPage() {
       width: 120,
       render: (status: string) => (
         <Tag
-          icon={statusIcon[status]}
-          color={statusTagColor[status]}
+          icon={statusIcon[status] ?? statusIcon['down']}
+          color={statusTagColor[status] ?? 'default'}
         >
           {status.charAt(0).toUpperCase() + status.slice(1)}
         </Tag>
