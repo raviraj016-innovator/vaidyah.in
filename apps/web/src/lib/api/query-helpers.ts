@@ -20,6 +20,9 @@ export function fetchWithFallback<T>(
     const { data } = await api.get<{ success?: boolean; data?: T } | T>(endpoint, config);
     // If response has { success: true, data: ... } structure, extract data
     if (data && typeof data === 'object' && 'data' in data && 'success' in data) {
+      if ((data as { success?: boolean }).success === false) {
+        throw new Error('API returned success: false');
+      }
       return (data as { data: T }).data;
     }
     return data as T;

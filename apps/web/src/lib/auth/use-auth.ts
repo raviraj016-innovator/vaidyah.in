@@ -93,8 +93,14 @@ export function useAuth() {
     store.setLoading(true);
     store.setError(null);
     try {
+      const mfaSessionId = useAuthStore.getState().mfaSessionId;
+      if (!mfaSessionId) {
+        useAuthStore.getState().setError('MFA session expired. Please login again.');
+        useAuthStore.getState().setLoading(false);
+        return;
+      }
       const { data } = await authApi.post(endpoints.auth.mfaVerify, {
-        session_id: useAuthStore.getState().mfaSessionId,
+        session_id: mfaSessionId,
         otp,
       });
       useAuthStore.getState().loginNurse(data.user as NurseUser, data.access_token, data.refresh_token);
@@ -145,8 +151,14 @@ export function useAuth() {
     store.setLoading(true);
     store.setError(null);
     try {
+      const otpSessionId = useAuthStore.getState().otpSessionId;
+      if (!otpSessionId) {
+        useAuthStore.getState().setError('OTP session expired. Please request a new OTP.');
+        useAuthStore.getState().setLoading(false);
+        return;
+      }
       const { data } = await authApi.post(endpoints.auth.otpVerify, {
-        session_id: useAuthStore.getState().otpSessionId,
+        session_id: otpSessionId,
         otp,
       });
       useAuthStore.getState().loginPatient(data.user as PatientUser, data.access_token, data.refresh_token);

@@ -199,7 +199,7 @@ export default function SOAPSummaryPage() {
       okType: 'primary',
       onOk: async () => {
         // Complete session via API
-        try { await api.post(`/sessions/${sessionId}/complete`); } catch (err) { console.error('Failed to complete session:', err); throw err; }
+        try { await api.post(`/sessions/${sessionId}/complete`); } catch (err) { console.error('Failed to complete session:', err); message.error(language === 'hi' ? 'सत्र पूरा करने में विफल' : 'Failed to complete session'); return; }
         setSoapStatus('finalized');
         completeSession();
         message.success(

@@ -23,7 +23,7 @@ const dictionaries: Record<Locale, typeof en> = {
 
 export function useTranslation() {
   const language = useAuthStore((s) => s.language);
-  const dict = dictionaries[language];
+  const dict = dictionaries[language] ?? dictionaries.en;
 
   const t = useCallback(
     (key: string, params?: Record<string, string>): string => {

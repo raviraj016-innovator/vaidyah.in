@@ -2,15 +2,19 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { authenticate, requireRole } from '../middleware/auth';
 import { auditLogger } from '../middleware/audit';
+import { createRoleBasedRateLimiter } from '../middleware/rateLimiter';
 import { validate, uuidParam, paginationRules, createPatientRules, patientSearchRules } from '../middleware/validator';
 import { asyncHandler, AppError } from '../middleware/errorHandler';
 import { queryOne, queryRows, query as dbQuery } from '../services/db';
 import { AuthenticatedRequest } from '../types';
 
+const roleRateLimiter = createRoleBasedRateLimiter();
+
 // ─── User Management Routes ───────────────────────────────────────────────
 
 export const usersRouter: Router = Router();
 usersRouter.use(authenticate as never);
+usersRouter.use(roleRateLimiter as never);
 usersRouter.use(auditLogger as never);
 
 // GET /users/roles (must be before /:id to avoid conflict)
@@ -138,6 +142,7 @@ usersRouter.delete(
 
 export const centersRouter: Router = Router();
 centersRouter.use(authenticate as never);
+centersRouter.use(roleRateLimiter as never);
 centersRouter.use(auditLogger as never);
 
 // GET /centers
@@ -268,6 +273,7 @@ centersRouter.get(
 
 export const patientsManagementRouter: Router = Router();
 patientsManagementRouter.use(authenticate as never);
+patientsManagementRouter.use(roleRateLimiter as never);
 patientsManagementRouter.use(auditLogger as never);
 
 // GET /patients/search (must be before /:id)
@@ -416,6 +422,7 @@ patientsManagementRouter.put(
 
 export const consultationsRouter: Router = Router();
 consultationsRouter.use(authenticate as never);
+consultationsRouter.use(roleRateLimiter as never);
 consultationsRouter.use(auditLogger as never);
 
 // GET /consultations
@@ -543,6 +550,7 @@ consultationsRouter.get(
 
 export const notificationsRouter: Router = Router();
 notificationsRouter.use(authenticate as never);
+notificationsRouter.use(roleRateLimiter as never);
 notificationsRouter.use(auditLogger as never);
 
 // GET /notifications
@@ -594,6 +602,7 @@ notificationsRouter.post(
 
 export const sessionExtRouter: Router = Router();
 sessionExtRouter.use(authenticate as never);
+sessionExtRouter.use(roleRateLimiter as never);
 sessionExtRouter.use(auditLogger as never);
 
 // POST /sessions/start (alias for POST /sessions)
@@ -743,6 +752,7 @@ sessionExtRouter.get(
 
 export const emergencyExtRouter: Router = Router();
 emergencyExtRouter.use(authenticate as never);
+emergencyExtRouter.use(roleRateLimiter as never);
 emergencyExtRouter.use(auditLogger as never);
 
 // GET /emergency/:id
@@ -830,6 +840,7 @@ emergencyExtRouter.put(
 
 export const trialExtRouter: Router = Router();
 trialExtRouter.use(authenticate as never);
+trialExtRouter.use(roleRateLimiter as never);
 trialExtRouter.use(auditLogger as never);
 
 // GET /trials (list)

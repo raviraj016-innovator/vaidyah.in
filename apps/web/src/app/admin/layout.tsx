@@ -12,7 +12,7 @@ import {
   MenuOutlined,
 } from '@ant-design/icons';
 import { AuthGuard } from '@/lib/auth/auth-guard';
-import { AdminSidebar } from '@/components/layout/admin-sidebar';
+import { AdminSidebar, SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH } from '@/components/layout/admin-sidebar';
 import { GuestBanner } from '@/components/layout/guest-banner';
 import { useAuthStore, AdminUser } from '@/stores/auth-store';
 import { useAuth } from '@/lib/auth/use-auth';
@@ -44,7 +44,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  const siderWidth = isMobile ? 0 : siderCollapsed ? 80 : 250;
+  const siderWidth = isMobile ? 0 : siderCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
 
   const userMenuItems: MenuProps['items'] = [
     {
@@ -76,7 +76,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
     <Layout style={{ minHeight: '100vh' }}>
       <GuestBanner />
       {/* Desktop sidebar */}
-      {!isMobile && <AdminSidebar onCollapse={setSiderCollapsed} />}
+      {!isMobile && <AdminSidebar collapsed={siderCollapsed} onCollapse={setSiderCollapsed} />}
 
       {/* Mobile drawer sidebar */}
       {isMobile && (

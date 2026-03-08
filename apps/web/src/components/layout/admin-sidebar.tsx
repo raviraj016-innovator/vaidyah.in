@@ -63,20 +63,25 @@ const MENU_ITEMS: MenuProps['items'] = [
   },
 ];
 
+const SIDEBAR_WIDTH = 250;
+const SIDEBAR_COLLAPSED_WIDTH = 80;
+
 interface AdminSidebarProps {
+  collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
   /** When true, render as inline (for mobile drawer) without fixed positioning */
   inline?: boolean;
 }
 
-export function AdminSidebar({ onCollapse, inline = false }: AdminSidebarProps) {
+export function AdminSidebar({ collapsed: controlledCollapsed, onCollapse, inline = false }: AdminSidebarProps) {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user) as AdminUser | null;
   const { logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
+
+  // Use controlled state from parent, fallback to false for inline/drawer mode
+  const collapsed = inline ? false : (controlledCollapsed ?? false);
 
   const handleCollapse = (value: boolean) => {
-    setCollapsed(value);
     onCollapse?.(value);
   };
 
@@ -111,10 +116,11 @@ export function AdminSidebar({ onCollapse, inline = false }: AdminSidebarProps) 
   return (
     <Sider
       collapsible={!inline}
-      collapsed={inline ? false : collapsed}
+      collapsed={collapsed}
       onCollapse={handleCollapse}
       trigger={null}
-      width={inline ? '100%' : 250}
+      width={inline ? '100%' : SIDEBAR_WIDTH}
+      collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
       style={{
         background: '#fff',
         borderRight: inline ? 'none' : '1px solid #f0f0f0',
@@ -175,7 +181,6 @@ export function AdminSidebar({ onCollapse, inline = false }: AdminSidebarProps) 
             icon={<MenuUnfoldOutlined />}
             onClick={() => handleCollapse(false)}
             size="small"
-            style={{ position: 'absolute', right: -16, top: 20, zIndex: 101 }}
           />
         )}
       </div>
@@ -261,4 +266,5 @@ export function AdminSidebar({ onCollapse, inline = false }: AdminSidebarProps) 
   );
 }
 
+export { SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH };
 export default AdminSidebar;

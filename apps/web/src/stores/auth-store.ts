@@ -211,8 +211,13 @@ export const useAuthStore = create<AuthState>()(
           token,
           refreshToken,
           isAuthenticated: true,
+          isGuest: false,
           isLoading: false,
           error: null,
+          mfaRequired: false,
+          mfaSessionId: null,
+          otpSessionId: null,
+          otpSent: false,
         });
       },
 
@@ -223,10 +228,13 @@ export const useAuthStore = create<AuthState>()(
           token,
           refreshToken,
           isAuthenticated: true,
+          isGuest: false,
           isLoading: false,
           error: null,
           mfaRequired: false,
           mfaSessionId: null,
+          otpSessionId: null,
+          otpSent: false,
         });
       },
 
@@ -240,6 +248,8 @@ export const useAuthStore = create<AuthState>()(
           isGuest: false,
           isLoading: false,
           error: null,
+          mfaRequired: false,
+          mfaSessionId: null,
           otpSessionId: null,
           otpSent: false,
         });

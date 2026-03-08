@@ -126,7 +126,9 @@ export const useTrialStore = create<TrialState>()(
 
       dismissMatch: (trialId) =>
         set((s) => ({
-          dismissedMatchIds: [...s.dismissedMatchIds, trialId],
+          dismissedMatchIds: s.dismissedMatchIds.includes(trialId)
+            ? s.dismissedMatchIds
+            : [...s.dismissedMatchIds, trialId],
         })),
 
       undoDismiss: (trialId) =>

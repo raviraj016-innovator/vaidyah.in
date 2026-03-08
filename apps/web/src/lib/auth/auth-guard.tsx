@@ -34,7 +34,7 @@ export function AuthGuard({ children, requiredPortal }: AuthGuardProps) {
       return;
     }
     if (portalType !== requiredPortal) {
-      router.replace('/');
+      router.replace(`/${portalType}/dashboard`);
       return;
     }
     const portalRoleMap: Record<PortalType, string[]> = {
@@ -44,7 +44,7 @@ export function AuthGuard({ children, requiredPortal }: AuthGuardProps) {
     };
     const allowedRoles = portalRoleMap[requiredPortal];
     if (allowedRoles.length > 0 && userRole && !allowedRoles.includes(userRole as string)) {
-      router.replace('/');
+      router.replace(`/${requiredPortal}/login`);
     }
   }, [hydrated, isAuthenticated, portalType, userRole, requiredPortal, router]);
 

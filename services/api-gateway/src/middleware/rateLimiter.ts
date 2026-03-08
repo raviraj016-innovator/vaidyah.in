@@ -84,11 +84,9 @@ function keyGenerator(req: Request): string {
 }
 
 /**
- * Returns the max requests for the current user.
- *
- * NOTE: req.user is undefined at this point because the rate limiter runs
- * before the auth middleware. Role-aware limits should be applied per-route
- * after authentication instead.
+ * Returns the max requests for the global (pre-auth) limiter.
+ * This is a generous DDoS safety net (200/min). Role-specific limits
+ * are enforced by createRoleBasedRateLimiter() after authentication.
  */
 function maxForUser(_req: Request): number {
   return config.rateLimit.default;
@@ -131,6 +129,46 @@ export function createRateLimiter(): RateLimitRequestHandler {
   });
 
   return _limiterInstance;
+}
+
+// ─── Role-Based Limiter (post-auth) ─────────────────────────────────────────
+
+/**
+ * Rate limiter that runs AFTER authentication middleware.
+ * Enforces per-role limits (patient:50, nurse:100, doctor:150, admin:200).
+ */
+export function createRoleBasedRateLimiter(): RateLimitRequestHandler {
+  let store: RedisRateLimitStore | undefined;
+  try {
+    store = new RedisRateLimitStore('role', config.rateLimit.windowMs);
+  } catch {
+    // fallback to memory
+  }
+
+  return rateLimit({
+    windowMs: config.rateLimit.windowMs,
+    max: ((req: Request) => {
+      const authReq = req as AuthenticatedRequest;
+      const role = authReq.user?.role;
+      if (role && role in config.rateLimit) {
+        return config.rateLimit[role as keyof typeof config.rateLimit] as number;
+      }
+      return config.rateLimit.default;
+    }) as any,
+    keyGenerator: ((req: Request) => {
+      const authReq = req as AuthenticatedRequest;
+      if (authReq.user) {
+        return `user:${authReq.user.sub}`;
+      }
+      return `ip:${req.ip ?? 'unknown'}`;
+    }) as any,
+    standardHeaders: true,
+    legacyHeaders: false,
+    ...(store ? { store: store as never } : {}),
+    handler: ((_req: Request, _res: Response, next: NextFunction) => {
+      next(AppError.tooManyRequests('Role rate limit exceeded. Please try again later.'));
+    }) as any,
+  });
 }
 
 // ─── Strict Limiter for Sensitive Endpoints ─────────────────────────────────

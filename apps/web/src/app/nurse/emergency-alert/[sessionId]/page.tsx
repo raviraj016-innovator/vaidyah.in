@@ -557,7 +557,7 @@ export default function EmergencyAlertPage() {
             type="primary"
             icon={<CheckCircleOutlined />}
             onClick={async () => {
-              try { await api.put(`/emergency/${sessionId}/status`, { status: 'resolved' }); } catch (err) { console.error('Failed to update emergency status:', err); throw err; }
+              try { await api.put(`/emergency/${sessionId}/status`, { status: 'resolved' }); } catch (err) { console.error('Failed to update emergency status:', err); message.error(language === 'hi' ? 'स्थिति अपडेट विफल' : 'Failed to update status'); return; }
               message.success(
                 language === 'hi'
                   ? 'आपातकाल स्थिति अपडेट किया गया'

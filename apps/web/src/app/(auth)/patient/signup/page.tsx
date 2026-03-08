@@ -166,7 +166,7 @@ export default function PatientSignupPage() {
           </Form.Item>
 
           <div style={{ textAlign: 'center', marginTop: 16 }}>
-            <Button type="link" onClick={() => handleSendOTP({ phone })} loading={loading} style={{ color: '#7c3aed' }}>
+            <Button type="link" onClick={() => { form.setFieldValue('otp', ''); handleSendOTP({ phone }); }} loading={loading} style={{ color: '#7c3aed' }}>
               Resend OTP
             </Button>
           </div>

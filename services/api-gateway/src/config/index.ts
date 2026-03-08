@@ -177,7 +177,7 @@ const config: AppConfig = {
     nurse: envInt('RATE_LIMIT_NURSE', 100),
     doctor: envInt('RATE_LIMIT_DOCTOR', 150),
     admin: envInt('RATE_LIMIT_ADMIN', 200),
-    default: envInt('RATE_LIMIT_DEFAULT', 50),
+    default: envInt('RATE_LIMIT_DEFAULT', 200),
     windowMs: envInt('RATE_LIMIT_WINDOW_MS', 60000),
   },
 

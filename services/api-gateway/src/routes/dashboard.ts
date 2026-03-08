@@ -2,16 +2,20 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
 import { authenticate } from '../middleware/auth';
 import { auditLogger } from '../middleware/audit';
+import { createRoleBasedRateLimiter } from '../middleware/rateLimiter';
 import { queryOne, queryRows } from '../services/db';
 import { cacheGet, cacheSet } from '../services/redis';
 import { AuthenticatedRequest } from '../types';
 import { getCircuitStatus } from '../services/proxy';
 import { getAwsServicesSummary } from '../services/aws-init';
 
+const roleRateLimiter = createRoleBasedRateLimiter();
+
 // ─── Dashboard Routes ──────────────────────────────────────────────────────
 
 export const dashboardRouter: Router = Router();
 dashboardRouter.use(authenticate as never);
+dashboardRouter.use(roleRateLimiter as never);
 dashboardRouter.use(auditLogger as never);
 
 // GET /dashboard/kpis
@@ -131,6 +135,7 @@ dashboardRouter.get(
 
 export const analyticsRouter: Router = Router();
 analyticsRouter.use(authenticate as never);
+analyticsRouter.use(roleRateLimiter as never);
 analyticsRouter.use(auditLogger as never);
 
 // GET /analytics/diseases/prevalence
@@ -250,6 +255,7 @@ analyticsRouter.get(
 
 export const systemRouter: Router = Router();
 systemRouter.use(authenticate as never);
+systemRouter.use(roleRateLimiter as never);
 systemRouter.use(auditLogger as never);
 
 // GET /system/services
@@ -348,6 +354,7 @@ systemRouter.get(
 
 export const nurseDashboardRouter: Router = Router();
 nurseDashboardRouter.use(authenticate as never);
+nurseDashboardRouter.use(roleRateLimiter as never);
 nurseDashboardRouter.use(auditLogger as never);
 
 // GET /nurse/dashboard/stats
