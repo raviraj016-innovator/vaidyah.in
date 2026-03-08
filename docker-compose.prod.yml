@@ -134,7 +134,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
+      # Node pg needs uselibpqcompat for RDS SSL
+      DATABASE_URL: "postgresql://${DB_USER}:${DB_PASSWORD_ENCODED}@${DB_HOST}:${DB_PORT:-5432}/${DB_NAME:-vaidyah}?uselibpqcompat=true&sslmode=require"
       JWT_SECRET: ${JWT_SECRET}
       NLU_SERVICE_URL: http://nlu-service:8002
     healthcheck:
@@ -154,7 +155,8 @@ services:
     environment:
       ENVIRONMENT: production
       AWS_REGION: ap-south-1
-      DATABASE_URL: ${DATABASE_URL}
+      # asyncpg needs plain sslmode, no uselibpqcompat
+      DATABASE_URL: "postgresql://${DB_USER}:${DB_PASSWORD_ENCODED}@${DB_HOST}:${DB_PORT:-5432}/${DB_NAME:-vaidyah}?sslmode=require"
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGINS: '["https://vaidyah.in","https://vaidyah.vercel.app"]'
     volumes:
