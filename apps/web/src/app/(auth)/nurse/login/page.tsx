@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card, Form, Input, Button, Alert, Typography, Select } from 'antd';
 import {
   LockOutlined,
@@ -31,6 +32,7 @@ interface HealthCenter {
 export default function NurseLoginPage() {
   const [form] = Form.useForm();
   const [otpForm] = Form.useForm();
+  const router = useRouter();
   const { loginNurse, verifyMfa, guestLogin } = useAuth();
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
@@ -42,31 +44,27 @@ export default function NurseLoginPage() {
   const [centersFetched, setCentersFetched] = useState(false);
   const setError = useAuthStore((s) => s.setError);
 
-  // Redirect authenticated nurse users to dashboard
+  // Redirect authenticated nurse users to dashboard (client-side, no full reload)
   useEffect(() => {
     if (isAuthenticated && portalType === 'nurse' && !mfaRequired) {
-      window.location.href = '/nurse/dashboard';
+      router.replace('/nurse/dashboard');
     }
-  }, [isAuthenticated, portalType, mfaRequired]);
+  }, [isAuthenticated, portalType, mfaRequired, router]);
 
   useEffect(() => {
-    if (centersFetched) return;
-    
+    if (centersFetched || isAuthenticated) return;
+
     api
       .get(endpoints.centers?.list ?? '/api/centers')
-      .then((res) => { 
+      .then((res) => {
         if (res.data?.data?.length) setCenters(res.data.data);
         setCentersFetched(true);
       })
-      .catch((err) => { 
+      .catch((err) => {
         console.error('Failed to fetch health centers:', err);
         setCentersFetched(true);
-        // If 401, clear any stale auth state to prevent redirect loop
-        if (err.response?.status === 401) {
-          useAuthStore.getState().logout();
-        }
       });
-  }, [centersFetched]);
+  }, [centersFetched, isAuthenticated]);
 
   const handleLogin = async (values: { identifier: string; password: string; centerId: string }) => {
     setError(null);
