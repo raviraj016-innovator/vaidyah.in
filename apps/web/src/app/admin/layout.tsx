@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import { AuthGuard } from '@/lib/auth/auth-guard';
 import { AdminSidebar } from '@/components/layout/admin-sidebar';
+import { GuestBanner } from '@/components/layout/guest-banner';
 import { useAuthStore, AdminUser } from '@/stores/auth-store';
 import { useAuth } from '@/lib/auth/use-auth';
 
@@ -67,6 +68,7 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      <GuestBanner />
       {/* Desktop sidebar */}
       {!isMobile && <AdminSidebar onCollapse={setSiderCollapsed} />}
 

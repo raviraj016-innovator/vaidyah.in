@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Card, Form, Input, Button, Alert, Typography, Divider, Space } from 'antd';
-import { PhoneOutlined, SafetyOutlined, UserOutlined, HeartOutlined } from '@ant-design/icons';
+import { PhoneOutlined, SafetyOutlined, UserOutlined, HeartOutlined, RocketOutlined } from '@ant-design/icons';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTranslation } from '@/lib/i18n/use-translation';
@@ -14,7 +14,7 @@ const { Title, Text } = Typography;
 export default function PatientLoginPage() {
   const [phoneForm] = Form.useForm();
   const [otpForm] = Form.useForm();
-  const { sendOtp, verifyOtp } = useAuth();
+  const { sendOtp, verifyOtp, guestLogin } = useAuth();
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const otpSent = useAuthStore((s) => s.otpSent);
@@ -116,12 +116,23 @@ export default function PatientLoginPage() {
             </Space.Compact>
           </Form.Item>
 
-          <Form.Item style={{ marginBottom: 16 }}>
+          <Form.Item style={{ marginBottom: 12 }}>
             <Button
               type="primary" htmlType="submit" loading={isLoading} block
               style={{ height: 46, fontWeight: 600 }}
             >
               {t('patient.login.sendOtp') !== 'patient.login.sendOtp' ? t('patient.login.sendOtp') : 'Send OTP'}
+            </Button>
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 16 }}>
+            <Button
+              block
+              icon={<RocketOutlined />}
+              onClick={() => guestLogin('patient')}
+              style={{ height: 46, fontWeight: 600, borderColor: '#7c3aed', color: '#7c3aed' }}
+            >
+              {language === 'hi' ? 'अतिथि के रूप में आज़माएं' : 'Try as Guest'}
             </Button>
           </Form.Item>
 

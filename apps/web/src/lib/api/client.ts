@@ -42,6 +42,54 @@ authApi.interceptors.request.use(
   (error: AxiosError) => Promise.reject(error),
 );
 
+// Guest mode interceptor: swallow errors and return mock empty responses
+function createGuestFallbackInterceptor() {
+  return (error: AxiosError) => {
+    const { isGuest } = useAuthStore.getState();
+    if (isGuest) {
+      // Return a mock successful response so pages render with empty state
+      const url = error.config?.url || '';
+      const mockData: Record<string, unknown> = { data: [], total: 0, success: true, message: 'Guest mode – demo data' };
+
+      // Provide sensible defaults for common endpoints
+      if (url.includes('/health')) mockData.status = 'ok';
+      if (url.includes('/stats') || url.includes('/analytics')) {
+        Object.assign(mockData, { total_patients: 1247, total_consultations: 3891, total_nurses: 48, total_centers: 12, active_sessions: 5 });
+      }
+      if (url.includes('/centers')) {
+        mockData.data = [
+          { id: 'demo-center-1', name: 'PHC Koregaon Park', district: 'Pune', state: 'Maharashtra', status: 'active', nurses_count: 8, patients_count: 320 },
+          { id: 'demo-center-2', name: 'CHC Hadapsar', district: 'Pune', state: 'Maharashtra', status: 'active', nurses_count: 12, patients_count: 580 },
+          { id: 'demo-center-3', name: 'PHC Kothrud', district: 'Pune', state: 'Maharashtra', status: 'active', nurses_count: 6, patients_count: 210 },
+        ];
+        mockData.total = 3;
+      }
+      if (url.includes('/consultations')) {
+        mockData.data = [];
+        mockData.total = 0;
+      }
+      if (url.includes('/trials/search') || url.includes('/trials')) {
+        mockData.data = [];
+        mockData.trials = [];
+        mockData.total = 0;
+        mockData.facets = {};
+      }
+
+      return Promise.resolve({
+        data: mockData,
+        status: 200,
+        statusText: 'OK (Guest Mode)',
+        headers: {},
+        config: error.config!,
+      });
+    }
+    return Promise.reject(error);
+  };
+}
+
+api.interceptors.response.use(undefined, createGuestFallbackInterceptor());
+authApi.interceptors.response.use(undefined, createGuestFallbackInterceptor());
+
 // Response interceptor: handle 401 / token refresh
 let isRefreshing = false;
 let failedQueue: Array<{ resolve: (token: string) => void; reject: (err: unknown) => void }> = [];
@@ -72,6 +120,8 @@ function createRefreshInterceptor(axiosInstance: typeof api) {
     if (!error.config) return Promise.reject(error);
 
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    if (useAuthStore.getState().isGuest) return Promise.reject(error);
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {

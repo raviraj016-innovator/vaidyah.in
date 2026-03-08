@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Card, Form, Input, Button, Alert, Typography } from 'antd';
-import { LockOutlined, MailOutlined, DashboardOutlined } from '@ant-design/icons';
+import { LockOutlined, MailOutlined, DashboardOutlined, RocketOutlined } from '@ant-design/icons';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -11,7 +11,7 @@ const { Title, Text } = Typography;
 
 export default function AdminLoginPage() {
   const [form] = Form.useForm();
-  const { loginAdmin } = useAuth();
+  const { loginAdmin, guestLogin } = useAuth();
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const setError = useAuthStore((s) => s.setError);
@@ -74,7 +74,7 @@ export default function AdminLoginPage() {
           <Input.Password prefix={<LockOutlined style={{ color: '#9ca3af' }} />} placeholder="Enter password" />
         </Form.Item>
 
-        <Form.Item style={{ marginBottom: 16 }}>
+        <Form.Item style={{ marginBottom: 12 }}>
           <Button
             type="primary"
             htmlType="submit"
@@ -83,6 +83,17 @@ export default function AdminLoginPage() {
             style={{ height: 46, fontWeight: 600 }}
           >
             Sign In
+          </Button>
+        </Form.Item>
+
+        <Form.Item style={{ marginBottom: 16 }}>
+          <Button
+            block
+            icon={<RocketOutlined />}
+            onClick={() => guestLogin('admin')}
+            style={{ height: 46, fontWeight: 600, borderColor: '#7c3aed', color: '#7c3aed' }}
+          >
+            Try as Guest
           </Button>
         </Form.Item>
 

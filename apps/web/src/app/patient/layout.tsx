@@ -4,6 +4,7 @@ import React from 'react';
 import { Layout } from 'antd';
 import { AuthGuard } from '@/lib/auth/auth-guard';
 import { PatientTabs } from '@/components/layout/patient-tabs';
+import { GuestBanner } from '@/components/layout/guest-banner';
 
 export default function PatientLayout({
   children,
@@ -23,6 +24,7 @@ export default function PatientLayout({
             .patient-content { padding: 12px; padding-bottom: 72px; }
           }
         `}</style>
+        <GuestBanner />
         <div className="patient-shell">
           <PatientTabs />
           <Layout.Content className="patient-content">
