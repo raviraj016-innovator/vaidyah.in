@@ -87,7 +87,14 @@ export default function AdminLoginPage() {
         </Form.Item>
 
         <div style={{ textAlign: 'center' }}>
-          <Link href="/" style={{ color: '#7c3aed', fontSize: 13 }}>
+          <Text style={{ color: '#94a3b8', fontSize: 13, display: 'block', marginBottom: 8 }}>
+            Need to create the first admin account?
+          </Text>
+          <Link href="/admin/signup" style={{ color: '#7c3aed', fontSize: 13, marginRight: 16 }}>
+            Bootstrap Admin
+          </Link>
+          <span style={{ color: '#e5e7eb' }}>|</span>
+          <Link href="/" style={{ color: '#7c3aed', fontSize: 13, marginLeft: 16 }}>
             Back to portal selection
           </Link>
         </div>

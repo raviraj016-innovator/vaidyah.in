@@ -10,6 +10,7 @@ COPY tsconfig.json ./
 COPY src/ ./src/
 
 RUN npm run build
+RUN npm prune --production
 
 # Stage 2: Production
 FROM node:20-alpine AS production
@@ -22,10 +23,9 @@ WORKDIR /app
 RUN addgroup -g 1001 -S vaidyah && \
     adduser -S vaidyah -u 1001 -G vaidyah
 
-COPY package.json ./
-RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
-
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
 RUN chown -R vaidyah:vaidyah /app
 
@@ -34,7 +34,7 @@ USER vaidyah
 EXPOSE 3002
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:3002/health || exit 1
+  CMD curl -f http://127.0.0.1:3002/health || exit 1
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/index.js"]

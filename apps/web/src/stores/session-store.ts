@@ -31,7 +31,7 @@ interface VitalsData {
 
 interface TranscriptEntry {
   id: string;
-  speaker: 'nurse' | 'patient' | 'system';
+  speaker: 'nurse' | 'patient' | 'system' | 'companion';
   text: string;
   textHi?: string;
   timestamp: string;
@@ -47,6 +47,13 @@ interface TriageResult {
   recommendation: string;
   recommendationHi?: string;
   referralType?: string;
+  differentialDiagnoses?: Array<{ name: string; confidence: number }>;
+  nurseProtocol?: string;
+  nurseProtocolHi?: string;
+  prescriptionSuggestion?: string;
+  prescriptionSuggestionHi?: string;
+  teleconsultRequired?: boolean;
+  emergencyRequired?: boolean;
 }
 
 interface SOAPNote {

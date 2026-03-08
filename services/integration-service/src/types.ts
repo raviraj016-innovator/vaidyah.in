@@ -170,7 +170,7 @@ export interface VitalRecord {
 
 // ─── Wearable Types ──────────────────────────────────────────────────────────
 
-export type WearablePlatform = 'apple_health' | 'google_fit';
+export type WearablePlatform = 'apple_health' | 'google_fit' | 'fitbit';
 
 export type WearableDataType =
   | 'heart_rate'
@@ -181,7 +181,9 @@ export type WearableDataType =
   | 'blood_pressure'
   | 'weight'
   | 'calories_burned'
-  | 'active_minutes';
+  | 'active_minutes'
+  | 'temperature'
+  | 'respiratory_rate';
 
 export interface WearableConnection {
   id: string;
@@ -265,7 +267,8 @@ export type WhatsAppTemplateType =
   | 'follow_up_reminder'
   | 'trial_notification'
   | 'health_alert'
-  | 'consultation_summary';
+  | 'consultation_summary'
+  | 'emergency_alert';
 
 export interface WhatsAppSendRequest {
   patientId: string;
@@ -288,6 +291,26 @@ export type WhatsAppMessageStatus =
   | 'delivered'
   | 'read'
   | 'failed';
+
+export interface WhatsAppMediaSendRequest {
+  patientId: string;
+  phoneNumber: string;
+  mediaType: 'image' | 'document';
+  mediaUrl: string;
+  caption?: string;
+  filename?: string;
+  language?: SupportedLanguage;
+}
+
+export const WhatsAppMediaSendSchema = z.object({
+  patientId: z.string().uuid(),
+  phoneNumber: z.string().regex(/^\+91\d{10}$/, 'Phone number must be in +91XXXXXXXXXX format'),
+  mediaType: z.enum(['image', 'document']),
+  mediaUrl: z.string().url(),
+  caption: z.string().max(1024).optional(),
+  filename: z.string().optional(),
+  language: z.enum(['en', 'hi', 'bn', 'ta', 'te', 'mr']).default('en'),
+});
 
 export interface WhatsAppMessage {
   id: string;
@@ -449,9 +472,24 @@ export const ConsultationPushSchema = z.object({
 
 export const WearableConnectSchema = z.object({
   patientId: z.string().uuid(),
-  platform: z.enum(['apple_health', 'google_fit']),
+  platform: z.enum(['apple_health', 'google_fit', 'fitbit']),
   authorizationCode: z.string().min(1),
   redirectUri: z.string().url(),
+});
+
+export const WearableDisconnectSchema = z.object({
+  patientId: z.string().uuid(),
+  platform: z.enum(['apple_health', 'google_fit', 'fitbit']),
+});
+
+export const WearableSyncSchema = z.object({
+  patientId: z.string().uuid(),
+  platform: z.enum(['apple_health', 'google_fit', 'fitbit']),
+  dataTypes: z.array(z.enum([
+    'heart_rate', 'steps', 'blood_glucose', 'spo2', 'sleep',
+    'blood_pressure', 'weight', 'calories_burned', 'active_minutes',
+    'temperature', 'respiratory_rate',
+  ])).optional(),
 });
 
 export const WhatsAppSendSchema = z.object({
@@ -470,6 +508,7 @@ export const WhatsAppTemplateSendSchema = z.object({
     'trial_notification',
     'health_alert',
     'consultation_summary',
+    'emergency_alert',
   ]),
   language: z.enum(['en', 'hi', 'bn', 'ta', 'te', 'mr']),
   parameters: z.record(z.string()),

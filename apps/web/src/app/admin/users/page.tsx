@@ -55,132 +55,6 @@ interface UserRecord {
   avatar?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const INITIAL_USERS: UserRecord[] = [
-  {
-    id: 'u-001',
-    name: 'Dr. Priya Sharma',
-    email: 'priya.sharma@vaidyah.in',
-    role: 'super_admin',
-    center: 'All Centers',
-    centerId: 'all',
-    languages: ['English', 'Hindi'],
-    qualifications: 'MBBS, MPH',
-    lastActive: '2 minutes ago',
-    status: 'active',
-  },
-  {
-    id: 'u-002',
-    name: 'Rahul Verma',
-    email: 'rahul.verma@vaidyah.in',
-    role: 'state_admin',
-    center: 'Chhattisgarh State',
-    centerId: 'cg-state',
-    languages: ['English', 'Hindi', 'Chhattisgarhi'],
-    qualifications: 'BCA, MHA',
-    lastActive: '1 hour ago',
-    status: 'active',
-  },
-  {
-    id: 'u-003',
-    name: 'Sunita Patel',
-    email: 'sunita.patel@vaidyah.in',
-    role: 'nurse',
-    center: 'PHC Raipur Central',
-    centerId: 'hc-001',
-    languages: ['Hindi', 'Chhattisgarhi'],
-    qualifications: 'GNM',
-    lastActive: '15 minutes ago',
-    status: 'active',
-  },
-  {
-    id: 'u-004',
-    name: 'Anjali Tiwari',
-    email: 'anjali.tiwari@vaidyah.in',
-    role: 'senior_nurse',
-    center: 'CHC Bilaspur',
-    centerId: 'hc-002',
-    languages: ['Hindi', 'English'],
-    qualifications: 'BSc Nursing',
-    lastActive: '30 minutes ago',
-    status: 'active',
-  },
-  {
-    id: 'u-005',
-    name: 'Deepak Yadav',
-    email: 'deepak.yadav@vaidyah.in',
-    role: 'district_admin',
-    center: 'Raipur District',
-    centerId: 'raipur-dist',
-    languages: ['Hindi'],
-    qualifications: 'MBA Healthcare',
-    lastActive: '3 hours ago',
-    status: 'active',
-  },
-  {
-    id: 'u-006',
-    name: 'Kavita Sahu',
-    email: 'kavita.sahu@vaidyah.in',
-    role: 'anm',
-    center: 'Sub-Center Korba',
-    centerId: 'hc-004',
-    languages: ['Hindi', 'Chhattisgarhi'],
-    qualifications: 'ANM Diploma',
-    lastActive: '1 day ago',
-    status: 'active',
-  },
-  {
-    id: 'u-007',
-    name: 'Ramesh Kurre',
-    email: 'ramesh.kurre@vaidyah.in',
-    role: 'nurse',
-    center: 'PHC Rajnandgaon',
-    centerId: 'hc-005',
-    languages: ['Hindi', 'Gondi'],
-    qualifications: 'GNM',
-    lastActive: '3 days ago',
-    status: 'inactive',
-  },
-  {
-    id: 'u-008',
-    name: 'Meena Dewangan',
-    email: 'meena.dewangan@vaidyah.in',
-    role: 'staff_nurse',
-    center: 'CHC Jagdalpur',
-    centerId: 'hc-006',
-    languages: ['Hindi', 'Halbi'],
-    qualifications: 'BSc Nursing, Critical Care Cert',
-    lastActive: '45 minutes ago',
-    status: 'active',
-  },
-  {
-    id: 'u-009',
-    name: 'Vijay Markam',
-    email: 'vijay.markam@vaidyah.in',
-    role: 'viewer',
-    center: 'All Centers',
-    centerId: 'all',
-    languages: ['English', 'Hindi'],
-    qualifications: 'BPH',
-    lastActive: '5 hours ago',
-    status: 'active',
-  },
-  {
-    id: 'u-010',
-    name: 'Lakshmi Nag',
-    email: 'lakshmi.nag@vaidyah.in',
-    role: 'nurse',
-    center: 'District Hospital Ambikapur',
-    centerId: 'hc-007',
-    languages: ['Hindi', 'Surgujiya'],
-    qualifications: 'GNM, Midwifery Cert',
-    lastActive: '20 minutes ago',
-    status: 'active',
-  },
-];
 
 const ROLE_OPTIONS = [
   { label: 'All Roles', value: '' },
@@ -193,6 +67,8 @@ const ROLE_OPTIONS = [
   { label: 'ANM', value: 'anm' },
   { label: 'Staff Nurse', value: 'staff_nurse' },
 ];
+
+const ADMIN_ROLES = ['super_admin', 'state_admin', 'district_admin', 'viewer'];
 
 const CENTER_OPTIONS = [
   { label: 'All Centers', value: '' },
@@ -243,20 +119,21 @@ export default function UsersPage() {
 
   const { data: fetchedUsers } = useQuery({
     queryKey: ['admin', 'users'],
-    queryFn: fetchWithFallback<UserRecord[]>(endpoints.users.list, INITIAL_USERS),
+    queryFn: fetchWithFallback<UserRecord[]>(endpoints.users.list),
     staleTime: 30_000,
   });
 
-  const [users, setUsers] = useState<UserRecord[]>(INITIAL_USERS);
+  const [users, setUsers] = useState<UserRecord[]>([]);
 
   React.useEffect(() => {
-    if (fetchedUsers && fetchedUsers !== INITIAL_USERS) {
+    if (fetchedUsers) {
       setUsers(fetchedUsers);
     }
   }, [fetchedUsers]);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [centerFilter, setCenterFilter] = useState('');
+  const [userTypeTab, setUserTypeTab] = useState<'all' | 'admins' | 'staff'>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [form] = Form.useForm();
@@ -294,7 +171,7 @@ export default function UsersPage() {
       prev.map((u) => (u.id === id ? { ...u, status: newStatus } : u)),
     );
     messageApi.success('User status updated');
-    try { await api.patch(endpoints.users.update(id), { status: newStatus }); } catch { /* demo mode */ }
+    try { await api.patch(endpoints.users.update(id), { status: newStatus }); } catch (err) { console.error('Failed to update user status:', err); throw err; }
     queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
   };
 
@@ -310,7 +187,7 @@ export default function UsersPage() {
           ),
         );
         messageApi.success('User updated successfully');
-        try { await api.put(endpoints.users.update(editingUser.id), values); } catch { /* demo mode */ }
+        try { await api.put(endpoints.users.update(editingUser.id), values); } catch (err) { console.error('Failed to update user:', err); throw err; }
       } else {
         const newUser: UserRecord = {
           ...values,
@@ -321,7 +198,7 @@ export default function UsersPage() {
         };
         setUsers((prev) => [newUser, ...prev]);
         messageApi.success('User created successfully');
-        try { await api.post(endpoints.users.create, values); } catch { /* demo mode */ }
+        try { await api.post(endpoints.users.create, values); } catch (err) { console.error('Failed to create user:', err); throw err; }
       }
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       setModalOpen(false);

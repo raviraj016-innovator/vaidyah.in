@@ -41,6 +41,7 @@ interface ServiceEndpointConfig {
   nluService: string;
   trialService: string;
   integrationService: string;
+  telemedicineService: string;
 }
 
 interface RateLimitConfig {
@@ -170,6 +171,7 @@ const config: AppConfig = {
     nluService: envStr('NLU_SERVICE_URL', 'http://nlu-service:8002'),
     trialService: envStr('TRIAL_SERVICE_URL', 'http://trial-service:8003'),
     integrationService: envStr('INTEGRATION_SERVICE_URL', 'http://integration-service:3002'),
+    telemedicineService: envStr('TELEMEDICINE_SERVICE_URL', 'http://telemedicine-service:8004'),
   },
 
   rateLimit: {

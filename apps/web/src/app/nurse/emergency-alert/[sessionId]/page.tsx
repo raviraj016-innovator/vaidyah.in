@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   App,
   Card,
@@ -23,59 +24,35 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   UserOutlined,
+  BankOutlined,
+  HeartOutlined,
+  ThunderboltOutlined,
+  ExperimentOutlined,
+  WarningOutlined,
+  FireOutlined,
+  ContactsOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import api from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
-// Mock emergency data
+// Emergency type options
 // ---------------------------------------------------------------------------
 
-const MOCK_EMERGENCY = {
-  patientName: 'Ram Kumar',
-  age: 65,
-  gender: 'Male',
-  phone: '9876543211',
-  emergencyType: 'Critical Vitals',
-  emergencyTypeHi: 'गंभीर वाइटल्स',
-  description:
-    'Severe hypertension detected. BP reading 180/110 mmHg with complaints of headache and blurred vision.',
-  descriptionHi:
-    'गंभीर उच्च रक्तचाप का पता चला। BP 180/110 mmHg सिरदर्द और धुंधली दृष्टि की शिकायत के साथ।',
-  vitals: {
-    bp: '180/110 mmHg',
-    heartRate: '98 bpm',
-    temperature: '99.2\u00b0F',
-    spO2: '94%',
-  },
-  timeline: [
-    {
-      time: new Date(Date.now() - 600000).toISOString(),
-      event: 'Emergency detected during vitals recording',
-      eventHi: 'वाइटल्स रिकॉर्डिंग के दौरान आपातकाल का पता चला',
-      status: 'completed' as const,
-    },
-    {
-      time: new Date(Date.now() - 540000).toISOString(),
-      event: 'Auto-alert sent to Medical Officer',
-      eventHi: 'चिकित्सा अधिकारी को ऑटो-अलर्ट भेजा गया',
-      status: 'completed' as const,
-    },
-    {
-      time: new Date(Date.now() - 300000).toISOString(),
-      event: 'Patient stabilized and monitored',
-      eventHi: 'रोगी को स्थिर किया गया और निगरानी की गई',
-      status: 'completed' as const,
-    },
-    {
-      time: new Date().toISOString(),
-      event: 'Awaiting Medical Officer response',
-      eventHi: 'चिकित्सा अधिकारी की प्रतिक्रिया की प्रतीक्षा',
-      status: 'pending' as const,
-    },
-  ],
-};
+const EMERGENCY_TYPES = [
+  { value: 'cardiac', label: 'Cardiac', labelHi: 'हृदय संबंधी', icon: <HeartOutlined />, color: '#dc2626' },
+  { value: 'respiratory', label: 'Respiratory', labelHi: 'श्वसन', icon: <ThunderboltOutlined />, color: '#f97316' },
+  { value: 'stroke', label: 'Stroke', labelHi: 'स्ट्रोक', icon: <ExperimentOutlined />, color: '#7c3aed' },
+  { value: 'trauma', label: 'Trauma', labelHi: 'आघात', icon: <WarningOutlined />, color: '#ef4444' },
+  { value: 'obstetric', label: 'Obstetric', labelHi: 'प्रसूति', icon: <MedicineBoxOutlined />, color: '#ec4899' },
+  { value: 'snakebite', label: 'Snakebite', labelHi: 'सर्पदंश', icon: <FireOutlined />, color: '#84cc16' },
+  { value: 'critical_vitals', label: 'Critical Vitals', labelHi: 'गंभीर वाइटल्स', icon: <AlertOutlined />, color: '#dc2626' },
+  { value: 'other', label: 'Other', labelHi: 'अन्य', icon: <AlertOutlined />, color: '#6b7280' },
+];
+
 
 // ---------------------------------------------------------------------------
 // Component
@@ -89,30 +66,126 @@ export default function EmergencyAlertPage() {
   const { message } = App.useApp();
 
   const patient = useSessionStore((s) => s.patient);
+  const storeSessionId = useSessionStore((s) => s.sessionId);
 
   const [ambulanceRequested, setAmbulanceRequested] = useState(false);
+  const [ambulanceEta, setAmbulanceEta] = useState<string | null>(null);
   const [moContacted, setMoContacted] = useState(false);
+  const [hospitalNotified, setHospitalNotified] = useState(false);
+  const [selectedEmergencyType, setSelectedEmergencyType] = useState<string>('critical_vitals');
 
-  const emergency = MOCK_EMERGENCY;
+  // Fetch emergency data from API
+  const { data: emergencyData } = useQuery({
+    queryKey: ['nurse', 'emergency', sessionId],
+    queryFn: fetchWithFallback<{ success: boolean; data: any }>(
+      `/emergency/${sessionId}`,
+    ),
+    staleTime: 30_000,
+  });
+
+  const apiEmergency = emergencyData?.data;
+  const emergency = {
+    patientName: apiEmergency?.patient_name ?? patient?.name ?? '--',
+    age: apiEmergency?.patient_age ?? patient?.age ?? '--',
+    gender: apiEmergency?.patient_gender ?? patient?.gender ?? '--',
+    phone: apiEmergency?.patient_phone ?? patient?.phone ?? '--',
+    emergencyContact: apiEmergency?.emergency_contact ?? null,
+    bloodGroup: apiEmergency?.blood_group ?? null,
+    emergencyType: apiEmergency?.alert_type ?? 'Unknown',
+    emergencyTypeHi: apiEmergency?.alert_type_hi ?? '',
+    description: apiEmergency?.description ?? '',
+    descriptionHi: apiEmergency?.description_hi ?? '',
+    vitals: apiEmergency?.vitals
+      ? {
+          bp: `${apiEmergency.vitals.bp_systolic ?? '--'}/${apiEmergency.vitals.bp_diastolic ?? '--'} mmHg`,
+          heartRate: `${apiEmergency.vitals.pulse ?? '--'} bpm`,
+          temperature: `${apiEmergency.vitals.temperature ?? '--'}\u00b0F`,
+          spO2: `${apiEmergency.vitals.spo2 ?? '--'}%`,
+        }
+      : { bp: '--/-- mmHg', heartRate: '-- bpm', temperature: '--\u00b0F', spO2: '--%' },
+    timeline: apiEmergency?.timeline ?? [],
+  };
   const patientName = patient?.name ?? emergency.patientName;
 
-  const handleRequestAmbulance = () => {
-    setAmbulanceRequested(true);
-    message.success(
-      language === 'hi'
-        ? 'एम्बुलेंस अनुरोध भेजा गया'
-        : 'Ambulance request sent',
-    );
-  };
+  const ambulanceMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/emergency/${sessionId}/ambulance`, {
+        emergencyType: selectedEmergencyType,
+      });
+      return data;
+    },
+    onSuccess: (data) => {
+      setAmbulanceRequested(true);
+      if (data?.eta) setAmbulanceEta(data.eta);
+      message.success(
+        language === 'hi' ? 'एम्बुलेंस अनुरोध भेजा गया' : 'Ambulance request sent',
+      );
+    },
+    onError: (err) => {
+      console.error('Failed to request ambulance:', err);
+      message.error(language === 'hi' ? 'एम्बुलेंस अनुरोध विफल' : 'Failed to request ambulance');
+    },
+  });
 
-  const handleContactMO = () => {
-    setMoContacted(true);
-    message.success(
-      language === 'hi'
-        ? 'चिकित्सा अधिकारी को सूचित किया गया'
-        : 'Medical Officer notified',
+  const contactMoMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/emergency/${sessionId}/contact-mo`);
+      return data;
+    },
+    onSuccess: () => {
+      setMoContacted(true);
+      message.success(
+        language === 'hi' ? 'चिकित्सा अधिकारी को सूचित किया गया' : 'Medical Officer notified',
+      );
+    },
+    onError: (err) => {
+      console.error('Failed to contact Medical Officer:', err);
+      message.error(language === 'hi' ? 'संपर्क विफल' : 'Failed to contact Medical Officer');
+    },
+  });
+
+  const hospitalMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/emergency/${sessionId}/notify-hospital`, {
+        emergencyType: selectedEmergencyType,
+      });
+      return data;
+    },
+    onSuccess: () => {
+      setHospitalNotified(true);
+      message.success(
+        language === 'hi' ? 'रेफ़रल अस्पताल को सूचित किया गया' : 'Referral hospital notified',
+      );
+    },
+    onError: (err) => {
+      console.error('Failed to notify hospital:', err);
+      message.error(language === 'hi' ? 'सूचना विफल' : 'Failed to notify hospital');
+    },
+  });
+
+  const handleRequestAmbulance = () => ambulanceMutation.mutate();
+  const handleContactMO = () => contactMoMutation.mutate();
+  const handleNotifyHospital = () => hospitalMutation.mutate();
+
+  // Session mismatch validation
+  if (storeSessionId && sessionId !== 'new' && storeSessionId !== sessionId) {
+    return (
+      <Card style={{ marginTop: 40, textAlign: 'center' }}>
+        <AlertOutlined style={{ fontSize: 48, color: '#dc2626', marginBottom: 16 }} />
+        <Typography.Title level={4} style={{ color: '#dc2626' }}>
+          {language === 'hi' ? 'सत्र बेमेल' : 'Session Mismatch'}
+        </Typography.Title>
+        <Typography.Paragraph type="secondary">
+          {language === 'hi'
+            ? 'यह आपातकालीन अलर्ट वर्तमान सत्र से मेल नहीं खाता। कृपया डैशबोर्ड पर वापस जाएं।'
+            : 'This emergency alert does not match the current session. Please return to the dashboard.'}
+        </Typography.Paragraph>
+        <Button type="primary" onClick={() => router.push('/nurse/dashboard')}>
+          {language === 'hi' ? 'डैशबोर्ड पर वापस' : 'Back to Dashboard'}
+        </Button>
+      </Card>
     );
-  };
+  }
 
   return (
     <div>
@@ -120,6 +193,31 @@ export default function EmergencyAlertPage() {
         title={language === 'hi' ? 'आपातकालीन अलर्ट' : 'Emergency Alert'}
         subtitle={`${language === 'hi' ? 'सत्र' : 'Session'}: ${sessionId}`}
       />
+
+      {/* Emergency Type Selector */}
+      <Card style={{ marginBottom: 16 }}>
+        <Space wrap size="middle" align="center">
+          <Typography.Text strong>
+            {language === 'hi' ? 'आपातकाल प्रकार:' : 'Emergency Type:'}
+          </Typography.Text>
+          {EMERGENCY_TYPES.map((et) => (
+            <Button
+              key={et.value}
+              type={selectedEmergencyType === et.value ? 'primary' : 'default'}
+              icon={et.icon}
+              onClick={() => setSelectedEmergencyType(et.value)}
+              style={
+                selectedEmergencyType === et.value
+                  ? { background: et.color, borderColor: et.color }
+                  : {}
+              }
+              size="middle"
+            >
+              {language === 'hi' ? et.labelHi : et.label}
+            </Button>
+          ))}
+        </Space>
+      </Card>
 
       {/* Emergency Banner */}
       <Card
@@ -143,8 +241,8 @@ export default function EmergencyAlertPage() {
             style={{ fontSize: 14, padding: '4px 16px', fontWeight: 600 }}
           >
             {language === 'hi'
-              ? emergency.emergencyTypeHi
-              : emergency.emergencyType}
+              ? (EMERGENCY_TYPES.find((t) => t.value === selectedEmergencyType)?.labelHi ?? emergency.emergencyTypeHi)
+              : (EMERGENCY_TYPES.find((t) => t.value === selectedEmergencyType)?.label ?? emergency.emergencyType)}
           </Tag>
           <Typography.Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 15 }}>
             {language === 'hi'
@@ -181,6 +279,20 @@ export default function EmergencyAlertPage() {
               <Descriptions.Item label={language === 'hi' ? 'फ़ोन' : 'Phone'}>
                 {patient?.phone ?? emergency.phone}
               </Descriptions.Item>
+              {emergency.bloodGroup && (
+                <Descriptions.Item label={language === 'hi' ? 'रक्त समूह' : 'Blood Group'}>
+                  <Tag color="red">{emergency.bloodGroup}</Tag>
+                </Descriptions.Item>
+              )}
+              {emergency.emergencyContact && (
+                <Descriptions.Item label={language === 'hi' ? 'आपातकालीन संपर्क' : 'Emergency Contact'}>
+                  <Space>
+                    <Typography.Text>
+                      {emergency.emergencyContact.name} ({emergency.emergencyContact.relation})
+                    </Typography.Text>
+                  </Space>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Divider style={{ margin: '12px 0' }} />
@@ -329,6 +441,71 @@ export default function EmergencyAlertPage() {
                     ? 'एम्बुलेंस अनुरोध करें'
                     : 'Request Ambulance'}
               </Button>
+
+              {/* Ambulance ETA Display */}
+              {ambulanceRequested && ambulanceEta && (
+                <Card
+                  size="small"
+                  style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    textAlign: 'center',
+                  }}
+                >
+                  <Space direction="vertical" size={4}>
+                    <Space>
+                      <div style={{
+                        width: 10, height: 10, borderRadius: '50%',
+                        background: '#16a34a',
+                        animation: 'pulse 2s infinite',
+                      }} />
+                      <Typography.Text strong style={{ color: '#16a34a' }}>
+                        {language === 'hi' ? 'एम्बुलेंस भेजी गई' : 'Ambulance Dispatched'}
+                      </Typography.Text>
+                    </Space>
+                    <Typography.Title level={4} style={{ margin: 0, color: '#15803d' }}>
+                      {language === 'hi' ? `ETA: ${ambulanceEta}` : `ETA: ${ambulanceEta}`}
+                    </Typography.Title>
+                  </Space>
+                </Card>
+              )}
+
+              <Button
+                type="default"
+                icon={<BankOutlined />}
+                size="large"
+                block
+                onClick={handleNotifyHospital}
+                disabled={hospitalNotified || !ambulanceRequested}
+                style={
+                  !hospitalNotified && ambulanceRequested
+                    ? { background: '#059669', borderColor: '#059669', color: '#fff' }
+                    : {}
+                }
+              >
+                {hospitalNotified
+                  ? language === 'hi'
+                    ? 'रेफ़रल अस्पताल को सूचित किया गया'
+                    : 'Hospital Notified'
+                  : language === 'hi'
+                    ? 'रेफ़रल अस्पताल को सूचित करें'
+                    : 'Notify Referral Hospital'}
+              </Button>
+
+              {emergency.emergencyContact && (
+                <a href={`tel:${emergency.emergencyContact.phone}`} style={{ display: 'block' }}>
+                  <Button
+                    icon={<ContactsOutlined />}
+                    size="large"
+                    block
+                    style={{ background: '#2563eb', borderColor: '#2563eb', color: '#fff' }}
+                  >
+                    {language === 'hi'
+                      ? `आपातकालीन संपर्क: ${emergency.emergencyContact.name}`
+                      : `Emergency Contact: ${emergency.emergencyContact.name}`}
+                  </Button>
+                </a>
+              )}
             </Space>
           </Card>
 
@@ -339,7 +516,7 @@ export default function EmergencyAlertPage() {
             }
           >
             <Timeline
-              items={emergency.timeline.map((item) => ({
+              items={emergency.timeline.map((item: { status: string; label: string; time: string; event: string; eventHi?: string }) => ({
                 color:
                   item.status === 'completed'
                     ? 'green'
@@ -379,7 +556,8 @@ export default function EmergencyAlertPage() {
           <Button
             type="primary"
             icon={<CheckCircleOutlined />}
-            onClick={() => {
+            onClick={async () => {
+              try { await api.put(`/emergency/${sessionId}/status`, { status: 'resolved' }); } catch (err) { console.error('Failed to update emergency status:', err); throw err; }
               message.success(
                 language === 'hi'
                   ? 'आपातकाल स्थिति अपडेट किया गया'

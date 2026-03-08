@@ -22,67 +22,37 @@ import { endpoints } from '@/lib/api/endpoints';
 
 const { Text } = Typography;
 
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const mockKpis = {
-  totalPatients: 12847,
-  activeConsultations: 234,
-  activeCenters: 48,
-  triageAccuracy: 94.2,
-};
-
-function generateConsultationTrend() {
-  const data: { date: string; count: number; type: string }[] = [];
-  const now = new Date();
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    data.push({
-      date: dateStr,
-      count: Math.floor(Math.random() * 40) + 60,
-      type: 'Total',
-    });
-    data.push({
-      date: dateStr,
-      count: Math.floor(Math.random() * 20) + 30,
-      type: 'AI-Assisted',
-    });
-  }
-  return data;
+interface DashboardKpis {
+  totalPatients: number;
+  activeConsultations: number;
+  activeCenters: number;
+  triageAccuracy: number;
 }
 
-const mockTriageDistribution = [
-  { category: 'Category A (Emergency)', count: 142, color: '#dc2626' },
-  { category: 'Category B (Urgent)', count: 387, color: '#d97706' },
-  { category: 'Category C (Non-Urgent)', count: 1204, color: '#16a34a' },
-];
+interface TrendPoint {
+  date: string;
+  count: number;
+  type: string;
+}
 
-const mockTopConditions = [
-  { condition: 'Upper Respiratory Infection', count: 342 },
-  { condition: 'Hypertension', count: 287 },
-  { condition: 'Type 2 Diabetes', count: 234 },
-  { condition: 'Gastroenteritis', count: 198 },
-  { condition: 'Anemia', count: 176 },
-  { condition: 'Urinary Tract Infection', count: 154 },
-  { condition: 'Malaria', count: 143 },
-  { condition: 'Skin Infection', count: 132 },
-  { condition: 'Acute Fever', count: 121 },
-  { condition: 'Joint Pain', count: 108 },
-];
+interface TriageCategory {
+  category: string;
+  count: number;
+}
 
-const mockCenters = [
-  { id: '1', name: 'PHC Raipur Central', status: 'online', patients: 45, nurses: 6, connectivity: 'good' },
-  { id: '2', name: 'CHC Bilaspur', status: 'online', patients: 32, nurses: 4, connectivity: 'good' },
-  { id: '3', name: 'PHC Durg', status: 'degraded', patients: 28, nurses: 3, connectivity: 'intermittent' },
-  { id: '4', name: 'Sub-Center Korba', status: 'online', patients: 15, nurses: 2, connectivity: 'good' },
-  { id: '5', name: 'PHC Rajnandgaon', status: 'offline', patients: 0, nurses: 2, connectivity: 'offline' },
-  { id: '6', name: 'CHC Jagdalpur', status: 'online', patients: 38, nurses: 5, connectivity: 'good' },
-  { id: '7', name: 'PHC Ambikapur', status: 'online', patients: 22, nurses: 3, connectivity: 'good' },
-  { id: '8', name: 'Sub-Center Kanker', status: 'degraded', patients: 12, nurses: 2, connectivity: 'intermittent' },
-];
+interface ConditionItem {
+  condition: string;
+  count: number;
+}
+
+interface CenterStatus {
+  id: string;
+  name: string;
+  status: string;
+  nurses: number;
+  patients: number;
+  connectivity: string;
+}
 
 const statusColor: Record<string, string> = {
   online: 'green',
@@ -101,27 +71,33 @@ const connectivityIcon: Record<string, React.ReactNode> = {
 // ---------------------------------------------------------------------------
 
 export default function AdminDashboardPage() {
-  const { data: kpis, isLoading: kpiLoading } = useQuery({
+  const { data: kpis, isLoading: kpiLoading } = useQuery<DashboardKpis>({
     queryKey: ['admin', 'dashboard', 'kpis'],
-    queryFn: fetchWithFallback(endpoints.dashboard.kpis, mockKpis),
+    queryFn: fetchWithFallback<DashboardKpis>(endpoints.dashboard.kpis),
     staleTime: 60_000,
   });
 
-  const { data: trendData } = useQuery({
+  const { data: trendData } = useQuery<TrendPoint[]>({
     queryKey: ['admin', 'dashboard', 'consultationTrend'],
-    queryFn: fetchWithFallback(endpoints.dashboard.consultationsTrend, generateConsultationTrend()),
+    queryFn: fetchWithFallback<TrendPoint[]>(endpoints.dashboard.consultationsTrend),
     staleTime: 60_000,
   });
 
-  const { data: triageData } = useQuery({
+  const { data: triageData } = useQuery<TriageCategory[]>({
     queryKey: ['admin', 'dashboard', 'triageDistribution'],
-    queryFn: fetchWithFallback(endpoints.dashboard.triageSummary, mockTriageDistribution),
+    queryFn: fetchWithFallback<TriageCategory[]>(endpoints.dashboard.triageSummary),
     staleTime: 60_000,
   });
 
-  const { data: conditionsData } = useQuery({
+  const { data: conditionsData } = useQuery<ConditionItem[]>({
     queryKey: ['admin', 'dashboard', 'topConditions'],
-    queryFn: fetchWithFallback(endpoints.dashboard.topConditions, mockTopConditions),
+    queryFn: fetchWithFallback<ConditionItem[]>(endpoints.dashboard.topConditions),
+    staleTime: 60_000,
+  });
+
+  const { data: centers } = useQuery<CenterStatus[]>({
+    queryKey: ['admin', 'dashboard', 'centersStatus'],
+    queryFn: fetchWithFallback<CenterStatus[]>(endpoints.dashboard.centersMap),
     staleTime: 60_000,
   });
 
@@ -239,7 +215,7 @@ export default function AdminDashboardPage() {
             styles={{ body: { padding: 0 } }}
           >
             <List
-              dataSource={mockCenters}
+              dataSource={centers}
               renderItem={(center) => (
                 <List.Item
                   key={center.id}

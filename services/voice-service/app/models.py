@@ -20,14 +20,37 @@ from pydantic import BaseModel, Field, field_validator
 # ---------------------------------------------------------------------------
 
 class SupportedLanguage(str, Enum):
-    """Languages supported by the voice service."""
+    """Languages supported by the voice service.
 
+    Covers all 22 Scheduled Languages of India plus English,
+    as required by the Vaidyah specification for India's linguistic diversity.
+    """
+
+    # Primary languages (full Transcribe + Polly support)
     ENGLISH_IN = "en-IN"
     HINDI = "hi-IN"
     BENGALI = "bn-IN"
     TAMIL = "ta-IN"
     TELUGU = "te-IN"
     MARATHI = "mr-IN"
+    GUJARATI = "gu-IN"
+    KANNADA = "kn-IN"
+    MALAYALAM = "ml-IN"
+    # Extended Indian languages (Transcribe auto-detect + Bedrock translation)
+    PUNJABI = "pa-IN"
+    ODIA = "or-IN"
+    ASSAMESE = "as-IN"
+    URDU = "ur-IN"
+    MAITHILI = "mai-IN"
+    SANTALI = "sat-IN"
+    KASHMIRI = "ks-IN"
+    NEPALI = "ne-IN"
+    SINDHI = "sd-IN"
+    KONKANI = "kok-IN"
+    DOGRI = "doi-IN"
+    MANIPURI = "mni-IN"
+    BODO = "brx-IN"
+    SANSKRIT = "sa-IN"
 
 
 class AudioFormat(str, Enum):
@@ -260,6 +283,45 @@ class LanguageDetectionResult(BaseModel):
     all_scores: list[LanguageScore] = []
     detection_source: str = "audio"  # "audio", "text", "combined"
     script_detected: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# Dialect Detection
+# ---------------------------------------------------------------------------
+
+class DialectDetectionRequest(BaseModel):
+    """Request body for the dialect detection endpoint."""
+
+    text: str = Field(min_length=1, max_length=5000, description="Text to analyse for dialect markers")
+    base_language: Optional[str] = Field(
+        default=None,
+        description=(
+            "BCP-47 language code of the parent language (e.g. 'hi-IN'). "
+            "If omitted, the service will auto-detect the base language first."
+        ),
+    )
+    audio_features: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional audio/prosody features to supplement lexical analysis. "
+            "Expected keys: pitch_mean_hz, pitch_std_hz, speaking_rate, etc."
+        ),
+    )
+
+
+class DialectDetectionResponse(BaseModel):
+    """Response from the dialect detection endpoint."""
+
+    request_id: UUID = Field(default_factory=uuid4)
+    base_language: str = Field(description="Detected or provided base language code")
+    dialect_name: str = Field(description="Identified dialect name, or 'standard'")
+    region: str = Field(description="Geographic region associated with the dialect")
+    confidence: float = Field(ge=0.0, le=1.0, description="Classification confidence")
+    linguistic_features: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Detected linguistic signals supporting the classification",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

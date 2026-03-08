@@ -54,151 +54,6 @@ interface ActiveAlert {
   timestamp: string;
 }
 
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const mockServices: ServiceStatus[] = [
-  {
-    key: 'api-gateway',
-    name: 'API Gateway',
-    status: 'healthy',
-    uptime: '99.97%',
-    responseTime: 45,
-    version: '2.3.1',
-    lastChecked: '30 sec ago',
-    errorRate: 0.03,
-  },
-  {
-    key: 'nlu-service',
-    name: 'NLU Service',
-    status: 'healthy',
-    uptime: '99.92%',
-    responseTime: 320,
-    version: '1.8.0',
-    lastChecked: '1 min ago',
-    errorRate: 0.08,
-  },
-  {
-    key: 'voice-service',
-    name: 'Voice Service',
-    status: 'healthy',
-    uptime: '99.89%',
-    responseTime: 180,
-    version: '1.5.2',
-    lastChecked: '45 sec ago',
-    errorRate: 0.11,
-  },
-  {
-    key: 'clinical-service',
-    name: 'Clinical Service',
-    status: 'healthy',
-    uptime: '99.95%',
-    responseTime: 95,
-    version: '2.1.0',
-    lastChecked: '30 sec ago',
-    errorRate: 0.05,
-  },
-  {
-    key: 'trial-service',
-    name: 'Trial Matching Service',
-    status: 'degraded',
-    uptime: '98.45%',
-    responseTime: 890,
-    version: '1.2.3',
-    lastChecked: '2 min ago',
-    errorRate: 1.55,
-  },
-  {
-    key: 'integration-service',
-    name: 'Integration Service (ABDM)',
-    status: 'healthy',
-    uptime: '99.78%',
-    responseTime: 210,
-    version: '1.4.1',
-    lastChecked: '1 min ago',
-    errorRate: 0.22,
-  },
-  {
-    key: 'prosody-ml',
-    name: 'Prosody Analysis (ML)',
-    status: 'healthy',
-    uptime: '99.85%',
-    responseTime: 450,
-    version: '0.9.5',
-    lastChecked: '30 sec ago',
-    errorRate: 0.15,
-  },
-  {
-    key: 'contradiction-ml',
-    name: 'Contradiction Detection (ML)',
-    status: 'down',
-    uptime: '95.20%',
-    responseTime: 0,
-    version: '0.7.2',
-    lastChecked: '5 min ago',
-    errorRate: 4.80,
-  },
-];
-
-const mockAlerts: ActiveAlert[] = [
-  {
-    id: 'a-001',
-    severity: 'error',
-    service: 'Contradiction Detection',
-    message: 'Service unresponsive. Last successful health check was 5 minutes ago. Auto-restart initiated.',
-    timestamp: '2026-03-02 10:42:00',
-  },
-  {
-    id: 'a-002',
-    severity: 'warning',
-    service: 'Trial Matching Service',
-    message: 'Response time exceeding SLA threshold (890ms > 500ms). Possible connection pool exhaustion to OpenSearch cluster.',
-    timestamp: '2026-03-02 10:38:00',
-  },
-  {
-    id: 'a-003',
-    severity: 'warning',
-    service: 'PHC Durg Connectivity',
-    message: 'Intermittent connectivity detected for health center PHC Durg. Sync queue growing (142 pending items).',
-    timestamp: '2026-03-02 10:25:00',
-  },
-  {
-    id: 'a-004',
-    severity: 'info',
-    service: 'NLU Service',
-    message: 'Bedrock model endpoint switching to new version. Canary deployment at 10% traffic.',
-    timestamp: '2026-03-02 10:15:00',
-  },
-];
-
-function generateResponseTimeTrend() {
-  const data: { time: string; responseTime: number; service: string }[] = [];
-  const services = ['API Gateway', 'NLU Service', 'Voice Service', 'Clinical Service', 'Trial Service'];
-  const baseTimes: Record<string, number> = {
-    'API Gateway': 45,
-    'NLU Service': 320,
-    'Voice Service': 180,
-    'Clinical Service': 95,
-    'Trial Service': 500,
-  };
-
-  for (let h = 0; h < 24; h++) {
-    const timeStr = `${h.toString().padStart(2, '0')}:00`;
-    for (const svc of services) {
-      const base = baseTimes[svc];
-      const jitter = (Math.random() - 0.5) * base * 0.4;
-      // Simulate a spike for Trial Service between 10-12
-      const spike = svc === 'Trial Service' && h >= 10 && h <= 12 ? base * 0.8 : 0;
-      data.push({
-        time: timeStr,
-        responseTime: Math.max(10, Math.round(base + jitter + spike)),
-        service: svc,
-      });
-    }
-  }
-  return data;
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -207,18 +62,18 @@ function generateResponseTimeTrend() {
 export default function SystemHealthPage() {
   const { data: services } = useQuery({
     queryKey: ['admin', 'system', 'services'],
-    queryFn: fetchWithFallback(endpoints.system.services, mockServices),
+    queryFn: fetchWithFallback<ServiceStatus[]>(endpoints.system.services),
     staleTime: 30_000,
   });
 
   const { data: alerts } = useQuery({
     queryKey: ['admin', 'system', 'alerts'],
-    queryFn: fetchWithFallback(endpoints.system.alerts, mockAlerts),
+    queryFn: fetchWithFallback<ActiveAlert[]>(endpoints.system.alerts),
     staleTime: 30_000,
   });
 
-  const activeServices = services ?? mockServices;
-  const activeAlerts = alerts ?? mockAlerts;
+  const activeServices = services ?? [];
+  const activeAlerts = alerts ?? [];
 
   const healthyCount = activeServices.filter((s) => s.status === 'healthy').length;
   const degradedCount = activeServices.filter((s) => s.status === 'degraded').length;
@@ -228,9 +83,9 @@ export default function SystemHealthPage() {
       (activeServices.filter((s) => s.responseTime > 0).length || 1),
   );
 
-  const { data: responseTrendData } = useQuery({
+  const { data: responseTrendData } = useQuery<Record<string, unknown>[]>({
     queryKey: ['admin', 'system', 'responseTrend'],
-    queryFn: fetchWithFallback(endpoints.system.responseTimes, generateResponseTimeTrend()),
+    queryFn: fetchWithFallback<Record<string, unknown>[]>(endpoints.system.responseTimes),
     staleTime: 60_000,
   });
 

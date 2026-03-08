@@ -73,6 +73,10 @@ resource "aws_secretsmanager_secret" "db_password" {
   kms_key_id              = var.kms_key_arn
   recovery_window_in_days = local.is_prod ? 30 : 7
 
+  lifecycle {
+    ignore_changes = [name]
+  }
+
   tags = var.tags
 }
 

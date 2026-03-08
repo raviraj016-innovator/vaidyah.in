@@ -10,13 +10,19 @@ interface ClinicalTrial {
   titleHi?: string;
   summary: string;
   summaryHi?: string;
+  plainSummary?: string;
   phase: string;
   status: string;
   conditions: string[];
+  categories?: string[];
   sponsor: string;
   eligibility?: {
     ageRange?: string;
+    ageMin?: number;
+    ageMax?: number;
     gender?: string;
+    ageGroup?: string;
+    raceEthnicity?: string;
     inclusion?: string[];
     exclusion?: string[];
   };
@@ -27,6 +33,7 @@ interface ClinicalTrial {
     distance?: number;
   }>;
   contact?: { name?: string; phone?: string; email?: string };
+  url?: string;
 }
 
 interface TrialMatch {
@@ -35,6 +42,7 @@ interface TrialMatch {
   eligible: boolean;
   matchReasons: string[];
   matchReasonsHi?: string[];
+  saved?: boolean;
 }
 
 interface Notification {
@@ -55,6 +63,7 @@ interface TrialState {
   notifications: Notification[];
   searchQuery: string;
   isSearching: boolean;
+  dismissedMatchIds: string[];
 
   setMatches: (matches: TrialMatch[]) => void;
   setSearchResults: (results: ClinicalTrial[]) => void;
@@ -65,6 +74,9 @@ interface TrialState {
   markNotificationRead: (id: string) => void;
   markAllRead: () => void;
   getUnreadCount: () => number;
+  saveMatch: (trialId: string) => void;
+  dismissMatch: (trialId: string) => void;
+  undoDismiss: (trialId: string) => void;
 }
 
 export type { ClinicalTrial, TrialMatch, Notification, TrialState };
@@ -77,6 +89,7 @@ export const useTrialStore = create<TrialState>()(
       notifications: [],
       searchQuery: '',
       isSearching: false,
+      dismissedMatchIds: [],
 
       setMatches: (matches) => set({ matches }),
       setSearchResults: (searchResults) => set({ searchResults }),
@@ -103,6 +116,23 @@ export const useTrialStore = create<TrialState>()(
         })),
 
       getUnreadCount: () => get().notifications.filter((n) => !n.read).length,
+
+      saveMatch: (trialId) =>
+        set((s) => ({
+          matches: s.matches.map((m) =>
+            m.trial.id === trialId ? { ...m, saved: true } : m,
+          ),
+        })),
+
+      dismissMatch: (trialId) =>
+        set((s) => ({
+          dismissedMatchIds: [...s.dismissedMatchIds, trialId],
+        })),
+
+      undoDismiss: (trialId) =>
+        set((s) => ({
+          dismissedMatchIds: s.dismissedMatchIds.filter((id) => id !== trialId),
+        })),
     }),
     {
       name: 'vaidyah-trial',
@@ -113,6 +143,7 @@ export const useTrialStore = create<TrialState>()(
       ),
       partialize: (state) => ({
         notifications: state.notifications,
+        dismissedMatchIds: state.dismissedMatchIds,
       }),
     },
   ),

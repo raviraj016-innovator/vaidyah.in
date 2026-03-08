@@ -79,27 +79,26 @@ class Settings(BaseSettings):
     s3_presigned_url_expiry: int = 3600  # seconds
     s3_audio_retention_days: int = 90
 
-    # --- AWS SageMaker (Prosody Model) ---
-    sagemaker_prosody_endpoint: Optional[str] = Field(
-        default=None,
-        alias="SAGEMAKER_PROSODY_ENDPOINT",
+    # --- AWS Bedrock (Prosody Analysis via Claude 3 Haiku) ---
+    bedrock_ml_model_id: str = Field(
+        default="anthropic.claude-3-haiku-20240307-v1:0",
+        alias="BEDROCK_ML_MODEL_ID",
     )
-    sagemaker_prosody_timeout: int = 10  # seconds
     prosody_fallback_to_rules: bool = True
 
     # --- Auth / JWT ---
     jwt_secret_key: str = Field(
-        default="dev-secret-do-not-use-in-production",
+        default="",
         alias="JWT_SECRET_KEY",
     )
     jwt_algorithm: str = "HS256"
-    jwt_issuer: str = "vaidyah-auth-service"
+    jwt_issuer: str = "vaidyah-auth"
     auth_enabled: bool = Field(default=True, alias="AUTH_ENABLED")
 
     # --- CORS ---
     cors_origins: list[str] = [
         "http://localhost:3000",
-        "http://localhost:8000",
+        "http://localhost:5173",
     ]
 
     # --- Audio Processing ---
@@ -110,9 +109,15 @@ class Settings(BaseSettings):
     default_sample_rate: int = 16000
     streaming_chunk_size: int = 4096  # bytes
 
-    # --- Language Support ---
+    # --- Language Support (all 22 Scheduled Languages of India + English) ---
     supported_languages: list[str] = [
+        # Primary (full Transcribe Medical / streaming support)
         "en-IN", "hi-IN", "bn-IN", "ta-IN", "te-IN", "mr-IN",
+        "gu-IN", "kn-IN", "ml-IN",
+        # Extended (Transcribe auto-detect + Bedrock translation fallback)
+        "pa-IN", "or-IN", "as-IN", "ur-IN", "mai-IN", "sat-IN",
+        "ks-IN", "ne-IN", "sd-IN", "kok-IN", "doi-IN", "mni-IN",
+        "brx-IN", "sa-IN",
     ]
     default_language: str = "en-IN"
 

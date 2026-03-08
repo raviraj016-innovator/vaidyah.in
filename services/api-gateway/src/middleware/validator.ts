@@ -50,6 +50,12 @@ export const uuidParam = (name: string = 'id'): ValidationChain =>
     .isUUID(4)
     .withMessage(`${name} must be a valid UUID v4`);
 
+// UUID or NCT ID parameter (for clinical trials which use NCT identifiers)
+export const uuidOrNctParam = (name: string = 'id'): ValidationChain =>
+  param(name)
+    .matches(/^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|NCT\d{8,11})$/i)
+    .withMessage(`${name} must be a valid UUID v4 or NCT ID`);
+
 // Pagination query params
 export const paginationRules: ValidationChain[] = [
   query('page')

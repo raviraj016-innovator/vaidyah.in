@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Card, Form, Input, Button, Alert, Typography, Divider, Space } from 'antd';
 import { PhoneOutlined, SafetyOutlined, UserOutlined, HeartOutlined } from '@ant-design/icons';
@@ -20,12 +20,44 @@ export default function PatientLoginPage() {
   const otpSent = useAuthStore((s) => s.otpSent);
   const setOtpSent = useAuthStore((s) => s.setOtpSent);
   const setError = useAuthStore((s) => s.setError);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+
+  // OTP resend countdown timer
+  const [resendCountdown, setResendCountdown] = useState(0);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (resendCountdown <= 0) {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      return;
+    }
+    countdownRef.current = setInterval(() => {
+      setResendCountdown((prev) => {
+        if (prev <= 1) {
+          if (countdownRef.current) clearInterval(countdownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, [resendCountdown]);
 
   const handleSendOtp = async (values: { phone: string }) => {
-    try { await sendOtp(values.phone); }
-    catch { /* store handles */ }
+    try {
+      await sendOtp(values.phone);
+      setResendCountdown(30);
+    } catch { /* store handles */ }
   };
+
+  const handleResendOtp = useCallback(async () => {
+    const phone = phoneForm.getFieldValue('phone');
+    if (!phone) return;
+    try {
+      await sendOtp(phone);
+      setResendCountdown(30);
+    } catch { /* store handles */ }
+  }, [phoneForm, sendOtp]);
 
   const handleVerifyOtp = async (values: { otp: string }) => {
     try { await verifyOtp(values.otp); }
@@ -35,6 +67,7 @@ export default function PatientLoginPage() {
   const handleChangeNumber = () => {
     setOtpSent(false);
     setError(null);
+    setResendCountdown(0);
     otpForm.resetFields();
   };
 
@@ -92,20 +125,18 @@ export default function PatientLoginPage() {
             </Button>
           </Form.Item>
 
-          <Divider style={{ margin: '16px 0' }}>
-            <Text style={{ color: '#94a3b8', fontSize: 12 }}>
-              {t('patient.login.or') !== 'patient.login.or' ? t('patient.login.or') : 'OR'}
-            </Text>
-          </Divider>
-
-          <Button
-            block icon={<UserOutlined />} style={{ height: 44 }}
-            onClick={() => window.open('https://healthid.ndhm.gov.in/', '_blank')}
-          >
-            {t('patient.login.abdmLogin') !== 'patient.login.abdmLogin' ? t('patient.login.abdmLogin') : 'Login with ABDM Health ID'}
-          </Button>
-
           <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+              Don't have an account?{' '}
+              <Link href="/patient/signup" style={{ color: '#7c3aed', fontWeight: 500 }}>
+                Create Account
+              </Link>
+            </Text>
+          </div>
+
+          <Divider style={{ margin: '16px 0' }} />
+
+          <div style={{ textAlign: 'center' }}>
             <Link href="/" style={{ color: '#7c3aed', fontSize: 13 }}>
               {t('common.backToPortal') !== 'common.backToPortal' ? t('common.backToPortal') : 'Back to portal selection'}
             </Link>
@@ -134,9 +165,26 @@ export default function PatientLoginPage() {
           </Form.Item>
 
           <div style={{ textAlign: 'center' }}>
-            <Button type="link" size="small" onClick={handleChangeNumber} style={{ color: '#7c3aed' }}>
-              {t('patient.login.changeNumber') !== 'patient.login.changeNumber' ? t('patient.login.changeNumber') : 'Change Phone Number'}
-            </Button>
+            <Space direction="vertical" size={4}>
+              <Button
+                type="link"
+                size="small"
+                onClick={handleResendOtp}
+                disabled={resendCountdown > 0 || isLoading}
+                style={{ color: resendCountdown > 0 ? '#94a3b8' : '#7c3aed' }}
+              >
+                {resendCountdown > 0
+                  ? language === 'hi'
+                    ? `${resendCountdown}s में पुनः भेजें`
+                    : `Resend in ${resendCountdown}s`
+                  : language === 'hi'
+                    ? 'OTP पुनः भेजें'
+                    : 'Resend OTP'}
+              </Button>
+              <Button type="link" size="small" onClick={handleChangeNumber} style={{ color: '#7c3aed' }}>
+                {t('patient.login.changeNumber') !== 'patient.login.changeNumber' ? t('patient.login.changeNumber') : 'Change Phone Number'}
+              </Button>
+            </Space>
           </div>
         </Form>
       )}

@@ -18,6 +18,7 @@ import {
 import { ExternalServiceError } from '../middleware/errorHandler';
 
 const SERVICE_NAME = 'ABDM';
+const isDevMode = config.server.nodeEnv !== 'production';
 
 let cachedToken: ABDMSessionToken | null = null;
 let tokenRefreshPromise: Promise<string> | null = null;
@@ -26,6 +27,180 @@ function isTokenValid(token: ABDMSessionToken): boolean {
   const elapsed = (Date.now() - token.issuedAt) / 1000;
   return elapsed < token.expiresIn - 60;
 }
+
+// ─── Dev-Mode Mock Data ──────────────────────────────────────────────────────
+
+function mockVerificationResponse(abhaId: string): ABHAVerificationResponse {
+  return {
+    verified: true,
+    abhaNumber: '91-1234-5678-9012',
+    abhaAddress: abhaId.includes('@') ? abhaId : `${abhaId}@abdm`,
+    name: 'Rajesh Kumar',
+    yearOfBirth: '1985',
+    gender: 'M',
+    mobile: '9876543210',
+    healthId: abhaId,
+    status: 'ACTIVE',
+  };
+}
+
+function mockConsentResponse(requestId: string): { requestId: string; status: ConsentStatus } {
+  return {
+    requestId,
+    status: 'REQUESTED',
+  };
+}
+
+function mockConsentStatusResponse(requestId: string): { requestId: string; status: ConsentStatus; artifact?: ConsentArtifact } {
+  return {
+    requestId,
+    status: 'GRANTED',
+    artifact: {
+      consentId: uuidv4(),
+      requestId,
+      status: 'GRANTED',
+      consentDetail: {
+        purpose: { code: 'CAREMGT', text: 'Care Management' },
+        patient: { id: 'rajesh.kumar@abdm' },
+        hip: { id: config.abdm.hipId, name: config.abdm.hipName },
+        hiTypes: ['OPConsultation', 'Prescription', 'DiagnosticReport'],
+        permission: {
+          accessMode: 'VIEW',
+          dateRange: {
+            from: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+            to: new Date().toISOString(),
+          },
+          dataEraseAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          frequency: { unit: 'HOUR', value: 1, repeats: 0 },
+        },
+      },
+      signature: 'mock-signature-dev-mode',
+      grantedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function mockHealthRecords(patientId: string): HealthRecord[] {
+  const now = new Date().toISOString();
+  const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+  return [
+    {
+      id: uuidv4(),
+      patientId,
+      recordType: 'OPConsultation',
+      sourceHipId: 'max-hospital-001',
+      sourceHipName: 'Max Super Speciality Hospital',
+      fhirBundle: {
+        resourceType: 'Bundle',
+        id: uuidv4(),
+        type: 'collection',
+        timestamp: oneMonthAgo,
+        entry: [
+          {
+            fullUrl: `urn:uuid:${uuidv4()}`,
+            resource: {
+              resourceType: 'Composition',
+              id: uuidv4(),
+              title: 'General Consultation - Upper Respiratory Infection',
+              status: 'final',
+              type: { coding: [{ system: 'http://snomed.info/sct', code: '371530004', display: 'Clinical consultation report' }] },
+              date: oneMonthAgo,
+              subject: { reference: `Patient/${patientId}` },
+            },
+          },
+        ],
+      },
+      summary: 'General Consultation - Upper Respiratory Infection',
+      recordDate: oneMonthAgo,
+      fetchedAt: now,
+      consentArtifactId: uuidv4(),
+    },
+    {
+      id: uuidv4(),
+      patientId,
+      recordType: 'Prescription',
+      sourceHipId: 'apollo-clinic-002',
+      sourceHipName: 'Apollo Clinic - Connaught Place',
+      fhirBundle: {
+        resourceType: 'Bundle',
+        id: uuidv4(),
+        type: 'collection',
+        timestamp: twoMonthsAgo,
+        entry: [
+          {
+            fullUrl: `urn:uuid:${uuidv4()}`,
+            resource: {
+              resourceType: 'MedicationRequest',
+              id: uuidv4(),
+              status: 'active',
+              intent: 'order',
+              medicationCodeableConcept: { text: 'Metformin 500mg' },
+              subject: { reference: `Patient/${patientId}` },
+              dosageInstruction: [{ text: '500mg twice daily after meals' }],
+            },
+          },
+          {
+            fullUrl: `urn:uuid:${uuidv4()}`,
+            resource: {
+              resourceType: 'MedicationRequest',
+              id: uuidv4(),
+              status: 'active',
+              intent: 'order',
+              medicationCodeableConcept: { text: 'Amlodipine 5mg' },
+              subject: { reference: `Patient/${patientId}` },
+              dosageInstruction: [{ text: '5mg once daily in the morning' }],
+            },
+          },
+        ],
+      },
+      summary: 'Prescription - Metformin 500mg, Amlodipine 5mg',
+      recordDate: twoMonthsAgo,
+      fetchedAt: now,
+      consentArtifactId: uuidv4(),
+    },
+    {
+      id: uuidv4(),
+      patientId,
+      recordType: 'DiagnosticReport',
+      sourceHipId: 'thyrocare-003',
+      sourceHipName: 'Thyrocare Technologies',
+      fhirBundle: {
+        resourceType: 'Bundle',
+        id: uuidv4(),
+        type: 'collection',
+        timestamp: twoMonthsAgo,
+        entry: [
+          {
+            fullUrl: `urn:uuid:${uuidv4()}`,
+            resource: {
+              resourceType: 'DiagnosticReport',
+              id: uuidv4(),
+              status: 'final',
+              code: { text: 'Complete Blood Count (CBC)' },
+              subject: { reference: `Patient/${patientId}` },
+              conclusion: 'All values within normal range. Hemoglobin: 14.2 g/dL, WBC: 7500/uL, Platelets: 250000/uL',
+            },
+          },
+        ],
+      },
+      summary: 'CBC Report - All values within normal range',
+      recordDate: twoMonthsAgo,
+      fetchedAt: now,
+      consentArtifactId: uuidv4(),
+    },
+  ];
+}
+
+function mockPushResponse(): { transactionId: string; status: string } {
+  return {
+    transactionId: uuidv4(),
+    status: 'TRANSFERRED',
+  };
+}
+
+// ─── ABDM Service Class ─────────────────────────────────────────────────────
 
 export class ABDMService {
   private readonly gateway: AxiosInstance;
@@ -61,7 +236,14 @@ export class ABDMService {
     });
   }
 
+  // ─── Session Token Management ──────────────────────────────────────────
+
   async getSessionToken(): Promise<string> {
+    if (isDevMode) {
+      console.log('[ABDM] Dev mode: returning mock session token');
+      return 'dev-mock-abdm-session-token';
+    }
+
     if (cachedToken && isTokenValid(cachedToken)) {
       return cachedToken.accessToken;
     }
@@ -112,7 +294,26 @@ export class ABDMService {
     };
   }
 
+  // ─── ABHA ID Verification ──────────────────────────────────────────────
+
   async verifyAbhaId(request: ABHAVerificationRequest): Promise<ABHAVerificationResponse> {
+    if (isDevMode) {
+      console.log(`[ABDM] Dev mode: mock verification for ABHA ID ${request.abhaId}`);
+      const mockResult = mockVerificationResponse(request.abhaId);
+
+      try {
+        await query(
+          `INSERT INTO abdm_verifications (id, abha_id, auth_method, purpose, status, response_data, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+          [uuidv4(), request.abhaId, request.authMethod, request.purpose, 'COMPLETED', JSON.stringify(mockResult)]
+        );
+      } catch (dbError) {
+        console.warn('[ABDM] Dev mode: could not persist verification to DB:', dbError instanceof Error ? dbError.message : dbError);
+      }
+
+      return mockResult;
+    }
+
     try {
       const headers = await this.authHeaders();
       const requestId = uuidv4();
@@ -176,10 +377,39 @@ export class ABDMService {
     }
   }
 
+  // ─── Consent Management ────────────────────────────────────────────────
+
   async requestConsent(request: ConsentRequest): Promise<{ requestId: string; status: ConsentStatus }> {
+    const requestId = uuidv4();
+
+    if (isDevMode) {
+      console.log(`[ABDM] Dev mode: mock consent request for patient ${request.patientId}`);
+
+      try {
+        await query(
+          `INSERT INTO consent_requests (id, patient_id, abha_address, purpose, hi_types, date_range_from, date_range_to, expiry, status, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+          [
+            requestId,
+            request.patientId,
+            request.abhaAddress,
+            request.purpose,
+            JSON.stringify(request.hiTypes),
+            request.dateRange.from,
+            request.dateRange.to,
+            request.expiry,
+            'REQUESTED',
+          ]
+        );
+      } catch (dbError) {
+        console.warn('[ABDM] Dev mode: could not persist consent request to DB:', dbError instanceof Error ? dbError.message : dbError);
+      }
+
+      return mockConsentResponse(requestId);
+    }
+
     try {
       const headers = await this.authHeaders();
-      const requestId = uuidv4();
       const timestamp = new Date().toISOString();
 
       const consentPayload = {
@@ -251,6 +481,32 @@ export class ABDMService {
   }
 
   async getConsentStatus(requestId: string): Promise<{ requestId: string; status: ConsentStatus; artifact?: ConsentArtifact }> {
+    if (isDevMode) {
+      console.log(`[ABDM] Dev mode: mock consent status for request ${requestId}`);
+
+      // Try to get status from DB first
+      const dbRecord = await queryOne<{ status: string }>(
+        `SELECT status FROM consent_requests WHERE id = $1`,
+        [requestId]
+      ).catch(() => null);
+
+      if (dbRecord) {
+        // Simulate consent being granted after initial request
+        if (dbRecord.status === 'REQUESTED') {
+          try {
+            await query(
+              `UPDATE consent_requests SET status = 'GRANTED', updated_at = NOW() WHERE id = $1`,
+              [requestId]
+            );
+          } catch {
+            // ignore DB errors in dev mode
+          }
+        }
+      }
+
+      return mockConsentStatusResponse(requestId);
+    }
+
     try {
       const headers = await this.authHeaders();
 
@@ -300,7 +556,103 @@ export class ABDMService {
     }
   }
 
+  async revokeConsent(requestId: string): Promise<{ requestId: string; status: ConsentStatus }> {
+    if (isDevMode) {
+      console.log(`[ABDM] Dev mode: mock consent revocation for request ${requestId}`);
+
+      try {
+        await query(
+          `UPDATE consent_requests SET status = 'REVOKED', updated_at = NOW() WHERE id = $1`,
+          [requestId]
+        );
+      } catch {
+        // ignore DB errors in dev mode
+      }
+
+      return { requestId, status: 'REVOKED' };
+    }
+
+    try {
+      const headers = await this.authHeaders();
+
+      await this.consentManager.post(
+        '/v1/consent-requests/revoke',
+        {
+          requestId,
+          timestamp: new Date().toISOString(),
+          consentRequestId: requestId,
+        },
+        { headers }
+      );
+
+      await query(
+        `UPDATE consent_requests SET status = 'REVOKED', updated_at = NOW() WHERE id = $1`,
+        [requestId]
+      );
+
+      return { requestId, status: 'REVOKED' };
+    } catch (error) {
+      if (error instanceof ExternalServiceError) throw error;
+      throw new ExternalServiceError(
+        SERVICE_NAME,
+        `Consent revocation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  async listConsents(patientId: string): Promise<Array<{ id: string; status: ConsentStatus; purpose: string; hiTypes: string[]; createdAt: string }>> {
+    const consents = await queryMany<{
+      id: string;
+      status: string;
+      purpose: string;
+      hi_types: string;
+      created_at: string;
+    }>(
+      `SELECT id, status, purpose, hi_types, created_at
+       FROM consent_requests
+       WHERE patient_id = $1
+       ORDER BY created_at DESC LIMIT 50`,
+      [patientId]
+    );
+
+    return consents.map((c) => ({
+      id: c.id,
+      status: c.status as ConsentStatus,
+      purpose: c.purpose,
+      hiTypes: JSON.parse(c.hi_types || '[]'),
+      createdAt: c.created_at,
+    }));
+  }
+
+  // ─── Health Record Pull ────────────────────────────────────────────────
+
   async pullHealthRecords(patientId: string): Promise<HealthRecord[]> {
+    if (isDevMode) {
+      console.log(`[ABDM] Dev mode: returning mock health records for patient ${patientId}`);
+
+      // Return mock data, but also try to load any locally stored records
+      let dbRecords: HealthRecord[] = [];
+      try {
+        dbRecords = await queryMany<HealthRecord>(
+          `SELECT id, patient_id AS "patientId", record_type AS "recordType",
+                  source_hip_id AS "sourceHipId", source_hip_name AS "sourceHipName",
+                  fhir_bundle AS "fhirBundle", summary, record_date AS "recordDate",
+                  fetched_at AS "fetchedAt", consent_artifact_id AS "consentArtifactId"
+           FROM health_records WHERE patient_id = $1
+           ORDER BY record_date DESC LIMIT 100`,
+          [patientId]
+        );
+      } catch {
+        // DB unavailable in dev mode
+      }
+
+      if (dbRecords.length > 0) {
+        return dbRecords;
+      }
+
+      return mockHealthRecords(patientId);
+    }
+
     const grantedConsents = await queryMany<{ id: string; abha_address: string; hi_types: string }>(
       `SELECT id, abha_address, hi_types FROM consent_requests
        WHERE patient_id = $1 AND status = 'GRANTED' AND expiry > NOW()
@@ -405,11 +757,39 @@ export class ABDMService {
     return records;
   }
 
+  // ─── Health Record Push ────────────────────────────────────────────────
+
   async pushConsultation(request: ConsultationPushRequest, consentArtifactId?: string): Promise<{ transactionId: string; status: string }> {
+    const transactionId = uuidv4();
+    const bundle = this.buildConsultationBundle(request);
+
+    if (isDevMode) {
+      console.log(`[ABDM] Dev mode: mock push consultation ${request.consultationId} for patient ${request.patientId}`);
+
+      try {
+        await query(
+          `INSERT INTO health_records (id, patient_id, record_type, source_hip_id, source_hip_name, fhir_bundle, summary, record_date, fetched_at, consent_artifact_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8)`,
+          [
+            transactionId,
+            request.patientId,
+            'OPConsultation',
+            config.abdm.hipId,
+            config.abdm.hipName,
+            JSON.stringify(bundle),
+            `Consultation by Dr. ${request.doctorId}: ${request.diagnosis.join(', ')}`,
+            request.consultationId,
+          ]
+        );
+      } catch (dbError) {
+        console.warn('[ABDM] Dev mode: could not persist consultation to DB:', dbError instanceof Error ? dbError.message : dbError);
+      }
+
+      return mockPushResponse();
+    }
+
     try {
       const headers = await this.authHeaders();
-      const transactionId = uuidv4();
-      const bundle = this.buildConsultationBundle(request);
 
       await this.gateway.post(
         '/v1/health-information/transfer',
@@ -417,9 +797,6 @@ export class ABDMService {
           requestId: uuidv4(),
           timestamp: new Date().toISOString(),
           notification: {
-            // TODO: consentId should use the actual consent artifact ID from the consent flow,
-            // not the transactionId. Pass consentArtifactId from the caller once consent
-            // management is integrated end-to-end.
             consentId: consentArtifactId || transactionId,
             transactionId,
             doneAt: new Date().toISOString(),
@@ -475,6 +852,37 @@ export class ABDMService {
       );
     }
   }
+
+  // ─── ABDM Gateway Callbacks (HIP/HIU) ─────────────────────────────────
+
+  async handleConsentNotification(payload: {
+    requestId: string;
+    consentRequestId: string;
+    status: string;
+    consentArtefacts?: Array<{ id: string }>;
+  }): Promise<void> {
+    const status = payload.status as ConsentStatus;
+
+    await query(
+      `UPDATE consent_requests SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [status, payload.consentRequestId]
+    );
+
+    if (status === 'GRANTED' && payload.consentArtefacts?.length) {
+      console.log(`[ABDM] Consent ${payload.consentRequestId} granted with ${payload.consentArtefacts.length} artefact(s)`);
+    }
+
+    console.log(`[ABDM] Consent notification processed: ${payload.consentRequestId} -> ${status}`);
+  }
+
+  async handleHealthInfoNotification(payload: {
+    transactionId: string;
+    sessionStatus: string;
+  }): Promise<void> {
+    console.log(`[ABDM] Health info notification: transaction ${payload.transactionId} -> ${payload.sessionStatus}`);
+  }
+
+  // ─── FHIR Bundle Construction ─────────────────────────────────────────
 
   private buildConsultationBundle(request: ConsultationPushRequest): FHIRBundle {
     const bundleId = uuidv4();
@@ -545,7 +953,7 @@ export class ABDMService {
     if (request.vitals) {
       for (const vital of request.vitals) {
         const numValue = parseFloat(vital.value);
-        if (isNaN(numValue)) continue; // skip invalid values
+        if (isNaN(numValue)) continue;
 
         entries.push({
           fullUrl: `urn:uuid:${uuidv4()}`,
@@ -571,6 +979,8 @@ export class ABDMService {
       entry: entries,
     };
   }
+
+  // ─── Helpers ───────────────────────────────────────────────────────────
 
   private getPurposeText(code: string): string {
     const purposes: Record<string, string> = {

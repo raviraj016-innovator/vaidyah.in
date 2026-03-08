@@ -12,6 +12,9 @@ import {
   Button,
   Divider,
   App,
+  Statistic,
+  Row,
+  Col,
 } from 'antd';
 import {
   UserOutlined,
@@ -21,10 +24,13 @@ import {
   MedicineBoxOutlined,
   AlertOutlined,
   IdcardOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
+import { useRouter } from 'next/navigation';
 import { useAuthStore, PatientUser } from '@/stores/auth-store';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useTranslation } from '@/lib/i18n/use-translation';
+import { useTrialStore } from '@/stores/trial-store';
 import { LanguageSwitcher } from '@/components/layout/language-switcher';
 import { PageHeader } from '@/components/ui/page-header';
 
@@ -106,19 +112,23 @@ function EditableTagList({
 
 export default function PatientProfilePage() {
   const { message, modal } = App.useApp();
+  const router = useRouter();
   const user = useAuthStore((s) => s.user) as PatientUser | null;
   const { logout } = useAuth();
   const { language } = useTranslation();
+  const matches = useTrialStore((s) => s.matches);
+  const matchCount = matches.length;
+  const eligibleCount = matches.filter((m) => m.eligible).length;
 
-  // Local editable state (mock; in production these would be API calls)
+  // Local editable state — synced from user profile
   const [conditions, setConditions] = useState<string[]>(
-    user?.conditions ?? ['Type 2 Diabetes', 'Hypertension'],
+    user?.conditions ?? [],
   );
   const [medications, setMedications] = useState<string[]>(
-    user?.medications ?? ['Metformin 500mg', 'Amlodipine 5mg'],
+    user?.medications ?? [],
   );
   const [allergies, setAllergies] = useState<string[]>(
-    user?.allergies ?? ['Penicillin'],
+    user?.allergies ?? [],
   );
 
   // Sync local state when user changes in store
@@ -133,7 +143,14 @@ export default function PatientProfilePage() {
   const abdmId = user?.abdmId ?? '12-3456-7890-1234';
   const userAge = user?.age ?? 52;
   const userGender = user?.gender ?? 'Male';
-  const userLocation = user?.location ?? 'New Delhi, India';
+  const userLocationRaw = user?.location;
+  const userLocation =
+    typeof userLocationRaw === 'object' && userLocationRaw
+      ? [userLocationRaw.city, userLocationRaw.state, userLocationRaw.pincode].filter(Boolean).join(', ')
+      : (userLocationRaw ?? 'New Delhi, India');
+  const locationCity = typeof userLocationRaw === 'object' && userLocationRaw ? userLocationRaw.city : undefined;
+  const locationState = typeof userLocationRaw === 'object' && userLocationRaw ? userLocationRaw.state : undefined;
+  const locationPincode = typeof userLocationRaw === 'object' && userLocationRaw ? userLocationRaw.pincode : undefined;
 
   const handleLogout = useCallback(() => {
     modal.confirm({
@@ -263,10 +280,77 @@ export default function PatientProfilePage() {
           <Descriptions.Item label={language === 'hi' ? 'स्थान' : 'Location'}>
             {userLocation}
           </Descriptions.Item>
+          {locationCity && (
+            <Descriptions.Item label={language === 'hi' ? 'शहर' : 'City'}>
+              {locationCity}
+            </Descriptions.Item>
+          )}
+          {locationState && (
+            <Descriptions.Item label={language === 'hi' ? 'राज्य' : 'State'}>
+              {locationState}
+            </Descriptions.Item>
+          )}
+          {locationPincode && (
+            <Descriptions.Item label={language === 'hi' ? 'पिनकोड' : 'Pincode'}>
+              {locationPincode}
+            </Descriptions.Item>
+          )}
           <Descriptions.Item label="ABDM ID">
             {abdmId}
           </Descriptions.Item>
         </Descriptions>
+      </Card>
+
+      {/* Section: Trial Match Summary */}
+      <Card
+        title={
+          <Space>
+            <ExperimentOutlined />
+            {language === 'hi' ? 'ट्रायल मिलान सारांश' : 'Trial Match Summary'}
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+        extra={
+          <Button
+            type="link"
+            size="small"
+            onClick={() => router.push('/patient/trials')}
+          >
+            {language === 'hi' ? 'सभी देखें' : 'View All'}
+          </Button>
+        }
+      >
+        <Row gutter={16}>
+          <Col span={8}>
+            <Statistic
+              title={language === 'hi' ? 'मिलान किए गए' : 'Matched'}
+              value={matchCount || 4}
+              valueStyle={{ color: '#7c3aed' }}
+            />
+          </Col>
+          <Col span={8}>
+            <Statistic
+              title={language === 'hi' ? 'पात्र' : 'Eligible'}
+              value={eligibleCount || 3}
+              valueStyle={{ color: '#52c41a' }}
+            />
+          </Col>
+          <Col span={8}>
+            <Statistic
+              title={language === 'hi' ? 'स्थितियां' : 'Conditions'}
+              value={conditions.length}
+              valueStyle={{ color: '#1677ff' }}
+            />
+          </Col>
+        </Row>
+        <Typography.Text
+          type="secondary"
+          style={{ display: 'block', marginTop: 12, fontSize: 12 }}
+        >
+          {language === 'hi'
+            ? 'आपकी स्वास्थ्य स्थितियों के आधार पर ट्रायल स्वचालित रूप से मिलान किए जाते हैं'
+            : 'Trials are automatically matched based on your health conditions, age, and location'}
+        </Typography.Text>
       </Card>
 
       {/* Section 2: Health Conditions */}

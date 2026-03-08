@@ -27,7 +27,6 @@ permissions:
 env:
   AWS_REGION: ap-south-1
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
-  EKS_CLUSTER: vaidyah-${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || 'staging') }}
 
 jobs:
   resolve-env:
@@ -62,13 +61,14 @@ jobs:
       voice-service: ${{ steps.filter.outputs.voice-service }}
       nlu-service: ${{ steps.filter.outputs.nlu-service }}
       trial-service: ${{ steps.filter.outputs.trial-service }}
-      admin-portal: ${{ steps.filter.outputs.admin-portal }}
+      telemedicine-service: ${{ steps.filter.outputs.telemedicine-service }}
+      web-app: ${{ steps.filter.outputs.web-app }}
       services-matrix: ${{ steps.matrix.outputs.matrix }}
       has-changes: ${{ steps.matrix.outputs.has-changes }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@v4
 
-      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+      - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
@@ -89,8 +89,10 @@ jobs:
             trial-service:
               - 'services/trial-service/**'
               - 'packages/medical-ontology/**'
-            admin-portal:
-              - 'apps/admin-portal/**'
+            telemedicine-service:
+              - 'services/telemedicine-service/**'
+            web-app:
+              - 'apps/web/**'
               - 'packages/shared-types/**'
 
       - id: matrix
@@ -99,12 +101,11 @@ jobs:
           MANUAL_SERVICES="${{ github.event.inputs.services }}"
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$MANUAL_SERVICES" == "all" ]]; then
-            SERVICES=("api-gateway" "clinical-service" "integration-service" "voice-service" "nlu-service" "trial-service" "admin-portal")
+            SERVICES=("api-gateway" "clinical-service" "integration-service" "voice-service" "nlu-service" "trial-service" "telemedicine-service")
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "$MANUAL_SERVICES" ]]; then
             IFS=',' read -ra SERVICES <<< "$MANUAL_SERVICES"
           else
-            for svc in api-gateway clinical-service integration-service voice-service nlu-service trial-service admin-portal; do
-              key=$(echo "$svc" | tr '-' '_')
+            for svc in api-gateway clinical-service integration-service voice-service nlu-service trial-service telemedicine-service; do
               if [[ "${{ steps.filter.outputs[format('{0}', svc)] }}" == "true" ]]; then
                 SERVICES+=("$svc")
               fi
@@ -130,30 +131,26 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.services-matrix) }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+      - uses: aws-actions/amazon-ecr-login@v2
         id: ecr-login
 
       - name: Resolve build context
         id: ctx
         run: |
           SVC="${{ matrix.service }}"
-          if [[ "$SVC" == "admin-portal" ]]; then
-            echo "path=apps/$SVC" >> "$GITHUB_OUTPUT"
-          else
-            echo "path=services/$SVC" >> "$GITHUB_OUTPUT"
-          fi
+          echo "path=services/$SVC" >> "$GITHUB_OUTPUT"
           echo "repo=vaidyah/$SVC" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+      - uses: docker/metadata-action@v5
         id: meta
         with:
           images: ${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.repo }}
@@ -161,7 +158,7 @@ jobs:
             type=sha,prefix=${{ needs.resolve-env.outputs.environment }}-
             type=raw,value=${{ needs.resolve-env.outputs.environment }}-latest
 
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      - uses: docker/build-push-action@v6
         with:
           context: ${{ steps.ctx.outputs.path }}
           push: true
@@ -171,19 +168,16 @@ jobs:
           provenance: false
 
   deploy:
-    name: Deploy to ${{ needs.resolve-env.outputs.environment }}
+    name: Deploy to EC2 (${{ needs.resolve-env.outputs.environment }})
     needs: [resolve-env, detect-changes, build-and-push]
     if: needs.detect-changes.outputs.has-changes == 'true'
     runs-on: ubuntu-latest
     environment:
       name: ${{ needs.resolve-env.outputs.environment == 'prod' && 'production' || needs.resolve-env.outputs.environment }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.detect-changes.outputs.services-matrix) }}
     env:
       DEPLOY_ENV: ${{ needs.resolve-env.outputs.environment }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@v4
 
       - name: Verify prod deploy source
         if: env.DEPLOY_ENV == 'prod'
@@ -193,36 +187,40 @@ jobs:
             exit 1
           fi
 
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Configure kubectl
-        run: aws eks update-kubeconfig --name vaidyah-${DEPLOY_ENV} --region ${{ env.AWS_REGION }}
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
 
-      - name: Resolve image context
-        id: ctx
-        run: |
-          SVC="${{ matrix.service }}"
-          if [[ "$SVC" == "admin-portal" ]]; then
-            echo "repo=vaidyah/$SVC" >> "$GITHUB_OUTPUT"
-          else
-            echo "repo=vaidyah/$SVC" >> "$GITHUB_OUTPUT"
-          fi
+            # Login to ECR
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+              docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-      - name: Deploy to EKS
-        run: |
-          IMAGE="${{ env.ECR_REGISTRY }}/${{ steps.ctx.outputs.repo }}:${DEPLOY_ENV}-${GITHUB_SHA::7}"
-          NAMESPACE="vaidyah"
+            # Pull updated images
+            SERVICES_JSON='${{ needs.detect-changes.outputs.services-matrix }}'
+            SERVICES=$(echo "$SERVICES_JSON" | jq -r '.service[]')
 
-          kubectl set image deployment/${{ matrix.service }} \
-            ${{ matrix.service }}="$IMAGE" \
-            -n "$NAMESPACE"
+            for svc in $SERVICES; do
+              IMAGE="${{ env.ECR_REGISTRY }}/vaidyah/$svc:${{ env.DEPLOY_ENV }}-latest"
+              echo "Pulling $IMAGE..."
+              docker pull "$IMAGE"
+            done
 
-          kubectl rollout status deployment/${{ matrix.service }} \
-            -n "$NAMESPACE" \
-            --timeout=300s
+            # Restart services via Docker Compose
+            cd /opt/vaidyah
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+            echo "Deployment complete"
 
   smoke-test:
     name: Smoke Test (${{ needs.resolve-env.outputs.environment }})
@@ -232,26 +230,9 @@ jobs:
     env:
       DEPLOY_ENV: ${{ needs.resolve-env.outputs.environment }}
     steps:
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Configure kubectl
-        run: aws eks update-kubeconfig --name vaidyah-${DEPLOY_ENV} --region ${{ env.AWS_REGION }}
-
-      - name: Get ingress endpoint
-        id: endpoint
-        run: |
-          NAMESPACE="vaidyah"
-          ENDPOINT=$(kubectl get ingress vaidyah-ingress -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-          if [[ -z "$ENDPOINT" ]]; then
-            ENDPOINT=$(kubectl get svc api-gateway -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-          fi
-          echo "url=http://$ENDPOINT" >> "$GITHUB_OUTPUT"
-
       - name: Health checks
         run: |
+          EC2_HOST="${{ secrets.EC2_HOST }}"
           SERVICES_JSON='${{ needs.detect-changes.outputs.services-matrix }}'
           SERVICES=$(echo "$SERVICES_JSON" | jq -r '.service[]')
           FAILED=0
@@ -263,26 +244,52 @@ jobs:
           PORT_MAP[voice-service]=8001
           PORT_MAP[nlu-service]=8002
           PORT_MAP[trial-service]=8003
-          PORT_MAP[admin-portal]=80
+          PORT_MAP[telemedicine-service]=8004
 
-          NAMESPACE="vaidyah"
-
-          for svc in $SERVICES; do
-            PORT=${PORT_MAP[$svc]:-80}
-            echo "Checking $svc on port $PORT..."
-            if kubectl exec deploy/api-gateway -n "$NAMESPACE" -- \
-              wget -q --spider --timeout=10 "http://${svc}.${NAMESPACE}.svc.cluster.local:${PORT}/health" 2>/dev/null; then
-              echo "  $svc: healthy"
-            else
-              echo "  $svc: FAILED"
-              FAILED=$((FAILED + 1))
+          # Health check via API gateway (all services are internal)
+          echo "Checking API gateway health..."
+          RETRIES=5
+          for i in $(seq 1 $RETRIES); do
+            if curl -sf --max-time 10 "http://${EC2_HOST}:3000/health" > /dev/null 2>&1; then
+              echo "  API gateway: healthy"
+              break
             fi
+            echo "  Attempt $i/$RETRIES failed, retrying in 10s..."
+            sleep 10
           done
 
-          if [[ $FAILED -gt 0 ]]; then
-            echo "::error::$FAILED service(s) failed health check"
+          if ! curl -sf --max-time 10 "http://${EC2_HOST}:3000/health" > /dev/null 2>&1; then
+            echo "::error::API gateway health check failed"
             exit 1
           fi
+
+          echo "All health checks passed"
+
+  deploy-web:
+    name: Deploy Web App to Vercel
+    needs: [resolve-env, detect-changes]
+    if: needs.detect-changes.outputs.web-app == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve-env.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel --token "$VERCEL_TOKEN" \
+            ${{ needs.resolve-env.outputs.environment == 'prod' && '--prod' || '' }} \
+            --yes
 
   notify:
     name: Slack Notification
@@ -303,7 +310,8 @@ jobs:
             echo "color=danger" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+      - uses: slackapi/slack-github-action@v2
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook

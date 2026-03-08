@@ -340,7 +340,7 @@ function Nav() {
    HERO — Split layout with product preview
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function MockDashboard() {
+function DashboardPreview() {
   return (
     <div
       style={{
@@ -366,7 +366,7 @@ function MockDashboard() {
           </span>
         </div>
       </div>
-      {/* Mock content */}
+      {/* Preview content */}
       <div style={{ padding: 18 }}>
         {/* Patient card */}
         <div style={{ background: color.gray50, borderRadius: 12, padding: 14, marginBottom: 12, border: `1px solid ${color.gray100}` }}>
@@ -383,7 +383,7 @@ function MockDashboard() {
               <div style={{ fontSize: 10, color: color.gray400, fontFamily: font }}>Female, 34 &bull; Hindi</div>
             </div>
           </div>
-          {/* Voice waveform mock */}
+          {/* Voice waveform preview */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 3, height: 28, padding: '0 4px' }}>
             {[14, 22, 18, 28, 12, 24, 16, 20, 26, 14, 22, 18, 24, 16, 28, 20, 12, 22, 18, 14].map((h, i) => (
               <div
@@ -693,7 +693,7 @@ function Hero() {
               pointerEvents: 'none',
             }}
           />
-          <MockDashboard />
+          <DashboardPreview />
         </div>
       </div>
     </section>

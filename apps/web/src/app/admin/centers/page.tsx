@@ -59,140 +59,6 @@ interface HealthCenter {
   lastSync: string;
 }
 
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const INITIAL_CENTERS: HealthCenter[] = [
-  {
-    id: 'hc-001',
-    name: 'PHC Raipur Central',
-    type: 'PHC',
-    state: 'Chhattisgarh',
-    district: 'Raipur',
-    status: 'active',
-    staffCount: 6,
-    dailyAvg: 45,
-    connectivity: 'good',
-    latitude: 21.2514,
-    longitude: 81.6296,
-    totalPatients: 3420,
-    activeSince: '2024-01-15',
-    lastSync: '2 min ago',
-  },
-  {
-    id: 'hc-002',
-    name: 'CHC Bilaspur',
-    type: 'CHC',
-    state: 'Chhattisgarh',
-    district: 'Bilaspur',
-    status: 'active',
-    staffCount: 4,
-    dailyAvg: 32,
-    connectivity: 'good',
-    latitude: 22.0796,
-    longitude: 82.1391,
-    totalPatients: 2180,
-    activeSince: '2024-02-20',
-    lastSync: '5 min ago',
-  },
-  {
-    id: 'hc-003',
-    name: 'PHC Durg',
-    type: 'PHC',
-    state: 'Chhattisgarh',
-    district: 'Durg',
-    status: 'active',
-    staffCount: 3,
-    dailyAvg: 28,
-    connectivity: 'intermittent',
-    latitude: 21.1904,
-    longitude: 81.2849,
-    totalPatients: 1890,
-    activeSince: '2024-03-10',
-    lastSync: '15 min ago',
-  },
-  {
-    id: 'hc-004',
-    name: 'Sub-Center Korba',
-    type: 'Sub-Center',
-    state: 'Chhattisgarh',
-    district: 'Korba',
-    status: 'active',
-    staffCount: 2,
-    dailyAvg: 15,
-    connectivity: 'good',
-    latitude: 22.3595,
-    longitude: 82.7501,
-    totalPatients: 980,
-    activeSince: '2024-04-05',
-    lastSync: '8 min ago',
-  },
-  {
-    id: 'hc-005',
-    name: 'PHC Rajnandgaon',
-    type: 'PHC',
-    state: 'Chhattisgarh',
-    district: 'Rajnandgaon',
-    status: 'inactive',
-    staffCount: 2,
-    dailyAvg: 0,
-    connectivity: 'offline',
-    latitude: 21.0974,
-    longitude: 81.028,
-    totalPatients: 560,
-    activeSince: '2024-05-12',
-    lastSync: '3 days ago',
-  },
-  {
-    id: 'hc-006',
-    name: 'CHC Jagdalpur',
-    type: 'CHC',
-    state: 'Chhattisgarh',
-    district: 'Bastar',
-    status: 'active',
-    staffCount: 5,
-    dailyAvg: 38,
-    connectivity: 'good',
-    latitude: 19.0784,
-    longitude: 82.0198,
-    totalPatients: 2750,
-    activeSince: '2024-01-28',
-    lastSync: '1 min ago',
-  },
-  {
-    id: 'hc-007',
-    name: 'District Hospital Ambikapur',
-    type: 'District Hospital',
-    state: 'Chhattisgarh',
-    district: 'Surguja',
-    status: 'active',
-    staffCount: 12,
-    dailyAvg: 78,
-    connectivity: 'good',
-    latitude: 23.1186,
-    longitude: 83.1988,
-    totalPatients: 5430,
-    activeSince: '2023-12-01',
-    lastSync: '30 sec ago',
-  },
-  {
-    id: 'hc-008',
-    name: 'Sub-Center Kanker',
-    type: 'Sub-Center',
-    state: 'Chhattisgarh',
-    district: 'Kanker',
-    status: 'maintenance',
-    staffCount: 2,
-    dailyAvg: 12,
-    connectivity: 'intermittent',
-    latitude: 20.272,
-    longitude: 81.4913,
-    totalPatients: 640,
-    activeSince: '2024-06-01',
-    lastSync: '2 hours ago',
-  },
-];
 
 const STATE_OPTIONS = [
   { label: 'All States', value: '' },
@@ -231,15 +97,15 @@ export default function CentersPage() {
 
   const { data: fetchedCenters } = useQuery({
     queryKey: ['admin', 'centers'],
-    queryFn: fetchWithFallback<HealthCenter[]>(endpoints.centers.list, INITIAL_CENTERS),
+    queryFn: fetchWithFallback<HealthCenter[]>(endpoints.centers.list),
     staleTime: 30_000,
   });
 
-  const [centers, setCenters] = useState<HealthCenter[]>(INITIAL_CENTERS);
+  const [centers, setCenters] = useState<HealthCenter[]>([]);
 
   // Sync fetched data into local state (allows optimistic mutations)
   React.useEffect(() => {
-    if (fetchedCenters && fetchedCenters !== INITIAL_CENTERS) {
+    if (fetchedCenters) {
       setCenters(fetchedCenters);
     }
   }, [fetchedCenters]);
@@ -283,7 +149,7 @@ export default function CentersPage() {
   const handleDelete = async (id: string) => {
     setCenters((prev) => prev.filter((c) => c.id !== id));
     messageApi.success('Center deleted successfully');
-    try { await api.delete(endpoints.centers.delete(id)); } catch { /* demo mode */ }
+    try { await api.delete(endpoints.centers.delete(id)); } catch (err) { console.error('Failed to delete center:', err); throw err; }
     queryClient.invalidateQueries({ queryKey: ['admin', 'centers'] });
   };
 
@@ -297,7 +163,7 @@ export default function CentersPage() {
           ),
         );
         messageApi.success('Center updated successfully');
-        try { await api.put(endpoints.centers.update(editingCenter.id), values); } catch { /* demo mode */ }
+        try { await api.put(endpoints.centers.update(editingCenter.id), values); } catch (err) { console.error('Failed to update center:', err); throw err; }
       } else {
         const newCenter: HealthCenter = {
           ...values,
@@ -310,7 +176,7 @@ export default function CentersPage() {
         };
         setCenters((prev) => [newCenter, ...prev]);
         messageApi.success('Center created successfully');
-        try { await api.post(endpoints.centers.create, values); } catch { /* demo mode */ }
+        try { await api.post(endpoints.centers.create, values); } catch (err) { console.error('Failed to create center:', err); throw err; }
       }
       queryClient.invalidateQueries({ queryKey: ['admin', 'centers'] });
       setModalOpen(false);

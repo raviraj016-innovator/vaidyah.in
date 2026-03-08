@@ -60,6 +60,16 @@ class BedrockClient:
         self._retry_max_attempts = settings.bedrock_retry_max_attempts
         self._retry_base_delay = settings.bedrock_retry_base_delay
 
+        # Apply retry decorator dynamically so it reads instance settings
+        self.invoke = retry(
+            reraise=True,
+            stop=stop_after_attempt(self._retry_max_attempts),
+            wait=wait_exponential(
+                multiplier=self._retry_base_delay, min=1, max=30
+            ),
+            retry=retry_if_exception_type((ClientError, ConnectionError)),
+        )(self.invoke)
+
         logger.info(
             "bedrock_client_initialized",
             model_id=self._model_id,
@@ -70,12 +80,6 @@ class BedrockClient:
     # Public API
     # ------------------------------------------------------------------
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=30),
-        retry=retry_if_exception_type((ClientError, ConnectionError)),
-    )
     def invoke(
         self,
         *,

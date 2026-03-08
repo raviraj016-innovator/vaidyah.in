@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Row, Col, Card, Table, Segmented, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -20,87 +20,34 @@ import { endpoints } from '@/lib/api/endpoints';
 
 const { Text } = Typography;
 
-// ---------------------------------------------------------------------------
-// Mock Data Generators
-// ---------------------------------------------------------------------------
-
 type Period = '7d' | '30d' | '90d';
 
-function generateKpis(period: Period) {
-  const multiplier = period === '7d' ? 1 : period === '30d' ? 4 : 12;
-  return {
-    totalConsultations: 234 * multiplier,
-    uniquePatients: 189 * multiplier,
-    avgWaitTime: period === '7d' ? 12.4 : period === '30d' ? 14.2 : 15.8,
-    aiAccuracy: period === '7d' ? 94.8 : period === '30d' ? 93.5 : 92.1,
-  };
+interface AnalyticsKpis {
+  totalConsultations: number;
+  uniquePatients: number;
+  avgWaitTime: number;
+  aiAccuracy: number;
 }
 
-function generateDiseasePrevalence() {
-  return [
-    { disease: 'Upper Respiratory Infection', count: 342 },
-    { disease: 'Hypertension', count: 287 },
-    { disease: 'Type 2 Diabetes', count: 234 },
-    { disease: 'Gastroenteritis', count: 198 },
-    { disease: 'Anemia', count: 176 },
-    { disease: 'Urinary Tract Infection', count: 154 },
-    { disease: 'Malaria', count: 143 },
-    { disease: 'Skin Infections', count: 132 },
-    { disease: 'Acute Fever (Dengue/Viral)', count: 121 },
-    { disease: 'Musculoskeletal Pain', count: 108 },
-  ];
+interface DiseaseItem {
+  disease: string;
+  count: number;
 }
 
-function generateDemographics() {
-  return [
-    { group: 'Children (0-14)', count: 2340 },
-    { group: 'Youth (15-24)', count: 1890 },
-    { group: 'Adults (25-44)', count: 3560 },
-    { group: 'Middle Age (45-64)', count: 2870 },
-    { group: 'Elderly (65+)', count: 1420 },
-  ];
+interface DemographicItem {
+  group: string;
+  count: number;
 }
 
-function generateAccuracyTrend(period: Period) {
-  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-  const step = period === '90d' ? 7 : 1;
-  const data: { date: string; accuracy: number; model: string }[] = [];
-  const now = new Date();
-
-  for (let i = days; i >= 0; i -= step) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-    data.push({
-      date: dateStr,
-      accuracy: 91 + Math.random() * 6,
-      model: 'NLU',
-    });
-    data.push({
-      date: dateStr,
-      accuracy: 88 + Math.random() * 8,
-      model: 'Triage',
-    });
-    data.push({
-      date: dateStr,
-      accuracy: 85 + Math.random() * 10,
-      model: 'Prosody',
-    });
-  }
-  return data;
+interface AccuracyPoint {
+  date: string;
+  accuracy: number;
+  model: string;
 }
 
-function generateWaitTimesByCenter() {
-  return [
-    { center: 'PHC Raipur', waitTime: 8.2 },
-    { center: 'CHC Bilaspur', waitTime: 12.5 },
-    { center: 'PHC Durg', waitTime: 15.3 },
-    { center: 'SC Korba', waitTime: 6.1 },
-    { center: 'CHC Jagdalpur', waitTime: 10.8 },
-    { center: 'DH Ambikapur', waitTime: 18.4 },
-    { center: 'SC Kanker', waitTime: 7.3 },
-  ];
+interface WaitTimeItem {
+  center: string;
+  waitTime: number;
 }
 
 interface NursePerformance {
@@ -112,16 +59,6 @@ interface NursePerformance {
   avgTime: string;
 }
 
-const mockNursePerformance: NursePerformance[] = [
-  { key: '1', name: 'Sunita Patel', center: 'PHC Raipur', consultations: 245, accuracy: 96.2, avgTime: '12 min' },
-  { key: '2', name: 'Anjali Tiwari', center: 'CHC Bilaspur', consultations: 198, accuracy: 94.8, avgTime: '14 min' },
-  { key: '3', name: 'Meena Dewangan', center: 'CHC Jagdalpur', consultations: 187, accuracy: 95.1, avgTime: '13 min' },
-  { key: '4', name: 'Lakshmi Nag', center: 'DH Ambikapur', consultations: 176, accuracy: 93.4, avgTime: '15 min' },
-  { key: '5', name: 'Kavita Sahu', center: 'SC Korba', consultations: 145, accuracy: 92.8, avgTime: '11 min' },
-  { key: '6', name: 'Priya Das', center: 'PHC Durg', consultations: 132, accuracy: 91.5, avgTime: '16 min' },
-  { key: '7', name: 'Rekha Thakur', center: 'SC Kanker', consultations: 98, accuracy: 90.2, avgTime: '18 min' },
-];
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -129,44 +66,52 @@ const mockNursePerformance: NursePerformance[] = [
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<Period>('30d');
 
-  const { data: kpis, isLoading: kpiLoading } = useQuery({
+  const { data: kpis, isLoading: kpiLoading } = useQuery<AnalyticsKpis>({
     queryKey: ['admin', 'analytics', 'kpis', period],
-    queryFn: fetchWithFallback(
+    queryFn: fetchWithFallback<AnalyticsKpis>(
       `${endpoints.analytics.diseasePrevalence}?period=${period}&type=kpis`,
-      generateKpis(period),
     ),
+    staleTime: 60_000,
   });
 
-  const { data: diseaseData } = useQuery({
+  const { data: diseaseData } = useQuery<DiseaseItem[]>({
     queryKey: ['admin', 'analytics', 'diseases', period],
-    queryFn: fetchWithFallback(
+    queryFn: fetchWithFallback<DiseaseItem[]>(
       `${endpoints.analytics.diseasePrevalence}?period=${period}`,
-      generateDiseasePrevalence(),
     ),
+    staleTime: 60_000,
   });
 
-  const { data: demographicsData } = useQuery({
+  const { data: demographicsData } = useQuery<DemographicItem[]>({
     queryKey: ['admin', 'analytics', 'demographics', period],
-    queryFn: fetchWithFallback(
+    queryFn: fetchWithFallback<DemographicItem[]>(
       `${endpoints.analytics.demographics}?period=${period}`,
-      generateDemographics(),
     ),
+    staleTime: 60_000,
   });
 
-  const { data: accuracyData } = useQuery({
+  const { data: accuracyData } = useQuery<AccuracyPoint[]>({
     queryKey: ['admin', 'analytics', 'accuracy', period],
-    queryFn: fetchWithFallback(
+    queryFn: fetchWithFallback<AccuracyPoint[]>(
       `${endpoints.analytics.aiAccuracy}?period=${period}`,
-      generateAccuracyTrend(period),
     ),
+    staleTime: 60_000,
   });
 
-  const { data: waitTimesData } = useQuery({
+  const { data: waitTimesData } = useQuery<WaitTimeItem[]>({
     queryKey: ['admin', 'analytics', 'waitTimes', period],
-    queryFn: fetchWithFallback(
+    queryFn: fetchWithFallback<WaitTimeItem[]>(
       `${endpoints.analytics.waitTimes}?period=${period}`,
-      generateWaitTimesByCenter(),
     ),
+    staleTime: 60_000,
+  });
+
+  const { data: nursePerformance } = useQuery<NursePerformance[]>({
+    queryKey: ['admin', 'analytics', 'nursePerformance', period],
+    queryFn: fetchWithFallback<NursePerformance[]>(
+      `${endpoints.analytics.nursePerformance}?period=${period}`,
+    ),
+    staleTime: 60_000,
   });
 
   const performanceColumns: ColumnsType<NursePerformance> = [
@@ -366,7 +311,7 @@ export default function AnalyticsPage() {
           <Card title="Nurse Performance" styles={{ body: { padding: 0 } }}>
             <Table
               rowKey="key"
-              dataSource={mockNursePerformance}
+              dataSource={nursePerformance}
               columns={performanceColumns}
               pagination={false}
               size="middle"

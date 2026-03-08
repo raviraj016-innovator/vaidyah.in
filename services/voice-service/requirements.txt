@@ -20,3 +20,4 @@ cachetools==5.3.2
 tenacity==8.2.3
 prometheus-client==0.20.0
 uvloop==0.19.0
+# amazon-transcribe-streaming-sdk>=0.6.2  # Commented out - not compatible with Python 3.11

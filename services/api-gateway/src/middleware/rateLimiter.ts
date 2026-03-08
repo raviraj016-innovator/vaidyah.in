@@ -112,20 +112,22 @@ export function createRateLimiter(): RateLimitRequestHandler {
     console.warn('[RateLimiter] Redis store unavailable, falling back to memory store');
   }
 
+  // Type assertions needed: monorepo hoists @types/express v4 (used by express-rate-limit)
+  // while api-gateway uses @types/express v5 locally — types are structurally incompatible.
   _limiterInstance = rateLimit({
     windowMs: config.rateLimit.windowMs,
-    max: maxForUser,
-    keyGenerator,
+    max: maxForUser as any,
+    keyGenerator: keyGenerator as any,
     standardHeaders: true,    // Return `RateLimit-*` headers
     legacyHeaders: false,     // Disable `X-RateLimit-*` headers
     ...(store ? { store: store as never } : {}),
-    handler: (_req: Request, _res: Response, next: NextFunction) => {
+    handler: ((_req: Request, _res: Response, next: NextFunction) => {
       next(AppError.tooManyRequests('Rate limit exceeded. Please try again later.'));
-    },
-    skip: (req: Request) => {
+    }) as any,
+    skip: ((req: Request) => {
       // Always allow health checks through
       return req.path === '/health' || req.path === '/ready';
-    },
+    }) as any,
   });
 
   return _limiterInstance;
@@ -151,12 +153,12 @@ export function createStrictRateLimiter(
   return rateLimit({
     windowMs: 60000,
     max: maxPerMinute,
-    keyGenerator,
+    keyGenerator: keyGenerator as any,
     standardHeaders: true,
     legacyHeaders: false,
     ...(store ? { store: store as never } : {}),
-    handler: (_req: Request, _res: Response, next: NextFunction) => {
+    handler: ((_req: Request, _res: Response, next: NextFunction) => {
       next(AppError.tooManyRequests('Strict rate limit exceeded.'));
-    },
+    }) as any,
   });
 }

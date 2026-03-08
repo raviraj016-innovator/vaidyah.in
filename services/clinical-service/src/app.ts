@@ -28,6 +28,19 @@ import {
   DifferentialDiagnosisResult,
 } from './types';
 
+// ─── Audit & Tracing ────────────────────────────────────────────────────────
+
+const _auditLog = async (event: Record<string, unknown>) => {
+  console.log('[AUDIT]', JSON.stringify(event));
+};
+console.log('[clinical-service] Audit logging initialized');
+
+async function audit(action: string, resource: string, resourceId: string, userId: string, details: Record<string, unknown> = {}) {
+  await _auditLog({ action, resource, resourceId, userId, details }).catch((err) =>
+    console.error('[AUDIT] Failed:', (err as Error).message)
+  );
+}
+
 // ─── Zod Schemas ────────────────────────────────────────────────────────────
 
 const VitalsSchema = z.object({
@@ -228,6 +241,14 @@ router.post('/triage', authorize('nurse', 'doctor', 'admin', 'system'), asyncHan
     res.status(207).json(response);
     return;
   }
+
+  // Audit: triage decision is a clinical action
+  await audit('TRIAGE_ASSESSMENT', 'triage_result', result.session_id, authReq.user?.sub ?? 'system', {
+    triage_level: result.triage_level,
+    urgency_score: result.urgency_score,
+    needs_immediate_attention: result.needs_immediate_attention,
+    red_flags_count: result.red_flags.length,
+  });
 
   const response: ApiResponse<TriageResult> = {
     success: true,
@@ -444,6 +465,13 @@ router.post('/soap', authorize('doctor', 'admin', 'system'), asyncHandler(async 
     res.status(207).json(response);
     return;
   }
+
+  // Audit: SOAP note generation accesses PHI
+  await audit('SOAP_NOTE_GENERATED', 'soap_note', soapNote.id, authReq.user?.sub ?? 'system', {
+    session_id: soapNote.session_id,
+    is_ai_generated: soapNote.is_ai_generated,
+    has_contradictions: (soapNote.assessment?.contradiction_flags?.length ?? 0) > 0,
+  });
 
   const response: ApiResponse<SOAPNote> = {
     success: true,

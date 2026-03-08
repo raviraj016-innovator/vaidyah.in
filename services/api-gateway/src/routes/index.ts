@@ -6,6 +6,7 @@ import { createStrictRateLimiter } from '../middleware/rateLimiter';
 import {
   validate,
   uuidParam,
+  uuidOrNctParam,
   createSessionRules,
   vitalsRules,
   emergencyAlertRules,
@@ -25,7 +26,7 @@ import {
 
 // ─── Session Routes ──────────────────────────────────────────────────────────
 
-export const sessionRouter = Router();
+export const sessionRouter: Router = Router();
 
 sessionRouter.use(authenticate as never);
 sessionRouter.use(auditLogger as never);
@@ -221,7 +222,7 @@ sessionRouter.post(
 
 // ─── Patient Routes ──────────────────────────────────────────────────────────
 
-export const patientRouter = Router();
+export const patientRouter: Router = Router();
 
 patientRouter.use(authenticate as never);
 patientRouter.use(auditLogger as never);
@@ -287,7 +288,7 @@ patientRouter.get(
 
 // ─── Triage Routes ───────────────────────────────────────────────────────────
 
-export const triageRouter = Router();
+export const triageRouter: Router = Router();
 
 triageRouter.use(authenticate as never);
 triageRouter.use(auditLogger as never);
@@ -352,7 +353,7 @@ triageRouter.post(
 
 // ─── Emergency Routes ────────────────────────────────────────────────────────
 
-export const emergencyRouter = Router();
+export const emergencyRouter: Router = Router();
 
 emergencyRouter.use(authenticate as never);
 emergencyRouter.use(auditLogger as never);
@@ -414,7 +415,7 @@ emergencyRouter.post(
 
 // ─── Clinical Trials Routes ──────────────────────────────────────────────────
 
-export const trialsRouter = Router();
+export const trialsRouter: Router = Router();
 
 trialsRouter.use(authenticate as never);
 trialsRouter.use(auditLogger as never);
@@ -430,7 +431,7 @@ trialsRouter.get(
 
 trialsRouter.get(
   '/:id',
-  validate(uuidParam('id')),
+  validate(uuidOrNctParam('id')),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const upstream = await forwardRequest('trial', req, `/api/v1/trials/${id}`);
@@ -446,6 +447,64 @@ trialsRouter.post(
   requireRole('doctor', 'admin') as never,
   asyncHandler(async (req: Request, res: Response) => {
     const upstream = await forwardRequest('trial', req, '/api/v1/trials/match');
+    res.status(upstream.statusCode).json(upstream.body);
+  }),
+);
+
+// CSV upload -- pipe multipart form to trial-service
+trialsRouter.post(
+  '/csv/upload',
+  requireRole('admin') as never,
+  asyncHandler(async (req: Request, res: Response) => {
+    // Validate content type (must be multipart/form-data or text/csv)
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data') && !contentType.includes('text/csv')) {
+      res.status(400).json({ success: false, error: 'Content-Type must be multipart/form-data or text/csv' });
+      return;
+    }
+
+    // Enforce max file size (50 MB)
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > 50 * 1024 * 1024) {
+      res.status(413).json({ success: false, error: 'File size exceeds 50 MB limit' });
+      return;
+    }
+
+    const http = await import('http');
+    const { URL } = await import('url');
+    const config = (await import('../config')).default;
+
+    const target = new URL(config.services.trialService);
+    const proxyReq = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port || 80,
+        path: '/api/v1/ingest/csv/upload',
+        method: 'POST',
+        headers: {
+          ...req.headers,
+          host: `${target.hostname}:${target.port || 80}`,
+        },
+        timeout: 120000,
+      },
+      (proxyRes) => {
+        res.status(proxyRes.statusCode ?? 502);
+        proxyRes.pipe(res);
+      },
+    );
+    proxyReq.on('error', () => {
+      res.status(502).json({ success: false, error: 'Trial service unavailable' });
+    });
+    req.pipe(proxyReq);
+  }),
+);
+
+// CSV import status
+trialsRouter.get(
+  '/csv/status',
+  requireRole('admin') as never,
+  asyncHandler(async (req: Request, res: Response) => {
+    const upstream = await forwardRequest('trial', req, '/api/v1/ingest/csv/status');
     res.status(upstream.statusCode).json(upstream.body);
   }),
 );

@@ -28,8 +28,31 @@ logger = structlog.get_logger("voice.services.polly")
 # Amazon Polly neural voices for Indian languages
 # ---------------------------------------------------------------------------
 VOICE_MAP: dict[str, dict[str, str]] = {
+    # --- Neural voices (native support) ---
     "en-IN": {"voice_id": "Kajal", "engine": "neural", "gender": "Female"},
     "hi-IN": {"voice_id": "Kajal", "engine": "neural", "gender": "Female"},
+    # --- Generative voices (long-form, Indian English variant) ---
+    "bn-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "ta-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "te-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "mr-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "gu-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "kn-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "ml-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "pa-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "or-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "as-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "ur-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "mai-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "sd-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "ks-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "ne-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "kok-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "doi-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "mni-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "sat-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "bo-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "sa-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
 }
 
 # Fallback voice used when a language has no dedicated Polly voice
@@ -222,9 +245,18 @@ class AWSPollyService:
             "Engine": engine,
         }
 
-        # Add LanguageCode for voices that support multiple languages
+        # Add LanguageCode for voices that support multiple languages.
+        # Kajal supports hi-IN and en-IN natively; for other Indian languages,
+        # we set the LanguageCode to hi-IN (closest phonetic match) when using
+        # generative engine, or en-IN as fallback.
         if voice_id == "Kajal":
-            params["LanguageCode"] = language_code
+            entry = VOICE_MAP.get(language_code)
+            if entry and entry["engine"] == "generative" and language_code not in ("en-IN", "hi-IN"):
+                # Map regional languages to hi-IN for Kajal's generative engine
+                # (phonetically closer to most Indic languages than en-IN)
+                params["LanguageCode"] = "hi-IN"
+            else:
+                params["LanguageCode"] = language_code
 
         logger.info(
             "polly.synthesize_request",

@@ -9,8 +9,14 @@ import {
   Spin,
   Empty,
   Card,
+  App,
 } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import {
+  ReloadOutlined,
+  HeartOutlined,
+  HeartFilled,
+  CloseOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore, PatientUser } from '@/stores/auth-store';
 import { useTranslation } from '@/lib/i18n/use-translation';
@@ -20,123 +26,6 @@ import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
-// Mock trial matches
-// ---------------------------------------------------------------------------
-
-const MOCK_MATCHES: TrialMatch[] = [
-  {
-    trial: {
-      id: 'trial-001',
-      nctId: 'NCT05678901',
-      title: 'Evaluating Novel Oral Diabetes Management in Type 2 Diabetics',
-      titleHi: 'टाइप 2 मधुमेह रोगियों में नई मौखिक मधुमेह प्रबंधन का मूल्यांकन',
-      summary:
-        'A Phase 3 randomized controlled trial evaluating the efficacy and safety of a novel GLP-1 receptor agonist for glycemic control in adult patients with type 2 diabetes.',
-      summaryHi:
-        'टाइप 2 मधुमेह वाले वयस्क रोगियों में ग्लाइसेमिक नियंत्रण के लिए एक नए GLP-1 रिसेप्टर एगोनिस्ट की प्रभावकारिता और सुरक्षा का मूल्यांकन करने वाला चरण 3 यादृच्छिक नियंत्रित परीक्षण।',
-      phase: 'Phase 3',
-      status: 'Recruiting',
-      conditions: ['Type 2 Diabetes', 'Hyperglycemia'],
-      sponsor: 'National Institute of Diabetes Research',
-      locations: [
-        { facility: 'AIIMS Delhi', city: 'New Delhi', state: 'Delhi', distance: 12 },
-      ],
-    },
-    matchScore: 0.92,
-    eligible: true,
-    matchReasons: [
-      'Matches your condition: Type 2 Diabetes',
-      'Age within eligible range (18-70)',
-      'Located within 15 km of your location',
-    ],
-    matchReasonsHi: [
-      'आपकी स्थिति से मेल खाता है: टाइप 2 मधुमेह',
-      'पात्र आयु सीमा (18-70) के भीतर',
-      'आपके स्थान से 15 किमी के भीतर',
-    ],
-  },
-  {
-    trial: {
-      id: 'trial-002',
-      nctId: 'NCT05678902',
-      title: 'Ayurvedic Formulation for Hypertension Management',
-      titleHi: 'उच्च रक्तचाप प्रबंधन के लिए आयुर्वेदिक फॉर्मूलेशन',
-      summary:
-        'A Phase 2 clinical trial studying the effectiveness of a standardized Ayurvedic compound in managing Stage 1 hypertension as adjunct therapy.',
-      summaryHi:
-        'स्टेज 1 उच्च रक्तचाप के प्रबंधन में सहायक चिकित्सा के रूप में एक मानकीकृत आयुर्वेदिक यौगिक की प्रभावशीलता का अध्ययन करने वाला चरण 2 नैदानिक परीक्षण।',
-      phase: 'Phase 2',
-      status: 'Recruiting',
-      conditions: ['Hypertension', 'Cardiovascular'],
-      sponsor: 'AYUSH Ministry',
-      locations: [
-        { facility: 'Ayurveda Hospital Jaipur', city: 'Jaipur', state: 'Rajasthan', distance: 45 },
-      ],
-    },
-    matchScore: 0.78,
-    eligible: true,
-    matchReasons: [
-      'Matches your condition: Hypertension',
-      'Trial accepts patients on existing medication',
-    ],
-    matchReasonsHi: [
-      'आपकी स्थिति से मेल खाता है: उच्च रक्तचाप',
-      'परीक्षण मौजूदा दवा पर रोगियों को स्वीकार करता है',
-    ],
-  },
-  {
-    trial: {
-      id: 'trial-003',
-      nctId: 'NCT05678903',
-      title: 'mHealth Intervention for Rural Diabetes Self-Management',
-      titleHi: 'ग्रामीण मधुमेह स्व-प्रबंधन के लिए mHealth हस्तक्षेप',
-      summary:
-        'A randomized trial evaluating a mobile health platform for improving diabetes self-management and HbA1c outcomes in rural Indian populations.',
-      summaryHi:
-        'ग्रामीण भारतीय आबादी में मधुमेह स्व-प्रबंधन और HbA1c परिणामों में सुधार के लिए मोबाइल स्वास्थ्य प्लेटफॉर्म का मूल्यांकन करने वाला एक यादृच्छिक परीक्षण।',
-      phase: 'Phase 3',
-      status: 'Enrolling by Invitation',
-      conditions: ['Type 2 Diabetes', 'Digital Health'],
-      sponsor: 'Indian Council of Medical Research',
-      locations: [
-        { facility: 'PHC Agra', city: 'Agra', state: 'Uttar Pradesh', distance: 120 },
-      ],
-    },
-    matchScore: 0.65,
-    eligible: true,
-    matchReasons: [
-      'Matches your condition: Type 2 Diabetes',
-      'Mobile-based intervention suitable for remote participation',
-    ],
-  },
-  {
-    trial: {
-      id: 'trial-004',
-      nctId: 'NCT05678904',
-      title: 'Yoga and Meditation for Stress-Related Hypertension',
-      titleHi: 'तनाव-संबंधित उच्च रक्तचाप के लिए योग और ध्यान',
-      summary:
-        'Evaluating structured yoga and meditation programs as complementary therapy for stress-related hypertension in urban adults.',
-      summaryHi:
-        'शहरी वयस्कों में तनाव-संबंधित उच्च रक्तचाप के लिए पूरक चिकित्सा के रूप में संरचित योग और ध्यान कार्यक्रमों का मूल्यांकन।',
-      phase: 'Phase 2',
-      status: 'Recruiting',
-      conditions: ['Hypertension', 'Stress'],
-      sponsor: 'NIMHANS Bangalore',
-      locations: [
-        { facility: 'NIMHANS', city: 'Bangalore', state: 'Karnataka', distance: 200 },
-      ],
-    },
-    matchScore: 0.55,
-    eligible: true,
-    matchReasons: [
-      'Matches related condition: Hypertension',
-      'Non-pharmacological intervention',
-    ],
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -144,15 +33,18 @@ export default function PatientHomePage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user) as PatientUser | null;
   const { language } = useTranslation();
+  const { message } = App.useApp();
   const matches = useTrialStore((s) => s.matches);
   const setMatches = useTrialStore((s) => s.setMatches);
+  const dismissedMatchIds = useTrialStore((s) => s.dismissedMatchIds);
+  const saveMatch = useTrialStore((s) => s.saveMatch);
+  const dismissMatch = useTrialStore((s) => s.dismissMatch);
 
   const patientId = user?.id ?? '';
   const { data: fetchedMatches, isLoading: loading, refetch } = useQuery({
     queryKey: ['patient', 'matches', patientId],
     queryFn: fetchWithFallback<TrialMatch[]>(
       patientId ? endpoints.trials.patientMatches(patientId) : endpoints.trials.matches,
-      MOCK_MATCHES,
     ),
     staleTime: 60_000,
     enabled: !!user,
@@ -166,7 +58,30 @@ export default function PatientHomePage() {
     refetch();
   }, [refetch]);
 
-  const displayMatches = matches;
+  // Filter out dismissed trials
+  const displayMatches = matches.filter(
+    (m) => !dismissedMatchIds.includes(m.trial.id),
+  );
+
+  const handleSaveMatch = useCallback(
+    (trialId: string) => {
+      saveMatch(trialId);
+      message.success(
+        language === 'hi' ? 'ट्रायल सेव किया गया' : 'Trial saved',
+      );
+    },
+    [saveMatch, language, message],
+  );
+
+  const handleDismissMatch = useCallback(
+    (trialId: string) => {
+      dismissMatch(trialId);
+      message.info(
+        language === 'hi' ? 'ट्रायल हटाया गया' : 'Trial dismissed',
+      );
+    },
+    [dismissMatch, language, message],
+  );
   const userName = user?.name ?? 'Patient';
 
   return (
@@ -252,31 +167,51 @@ export default function PatientHomePage() {
       ) : (
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
           {displayMatches.map((match) => (
-            <TrialCard
-              key={match.trial.id}
-              id={match.trial.id}
-              title={
-                language === 'hi' && match.trial.titleHi
-                  ? match.trial.titleHi
-                  : match.trial.title
-              }
-              summary={
-                language === 'hi' && match.trial.summaryHi
-                  ? match.trial.summaryHi
-                  : match.trial.summary
-              }
-              phase={match.trial.phase}
-              status={match.trial.status}
-              conditions={match.trial.conditions}
-              matchScore={match.matchScore}
-              location={
-                match.trial.locations?.[0]
-                  ? `${match.trial.locations[0].city}, ${match.trial.locations[0].state}`
-                  : undefined
-              }
-              sponsor={match.trial.sponsor}
-              onClick={(id) => router.push(`/patient/trials/${id}`)}
-            />
+            <div key={match.trial.id} style={{ position: 'relative' }}>
+              <TrialCard
+                id={match.trial.id}
+                title={
+                  language === 'hi' && match.trial.titleHi
+                    ? match.trial.titleHi
+                    : match.trial.title
+                }
+                summary={
+                  language === 'hi' && match.trial.summaryHi
+                    ? match.trial.summaryHi
+                    : match.trial.summary
+                }
+                phase={match.trial.phase}
+                status={match.trial.status}
+                conditions={match.trial.conditions}
+                matchScore={match.matchScore}
+                location={
+                  match.trial.locations?.[0]
+                    ? `${match.trial.locations[0].city}, ${match.trial.locations[0].state}`
+                    : undefined
+                }
+                sponsor={match.trial.sponsor}
+                onClick={(id) => router.push(`/patient/trials/${id}`)}
+              />
+              {/* Save / Dismiss actions */}
+              <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 1 }}>
+                <Space size={4}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={match.saved ? <HeartFilled style={{ color: '#dc2626' }} /> : <HeartOutlined />}
+                    onClick={(e) => { e.stopPropagation(); handleSaveMatch(match.trial.id); }}
+                    title={language === 'hi' ? 'सेव करें' : 'Save'}
+                  />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CloseOutlined style={{ color: '#9ca3af' }} />}
+                    onClick={(e) => { e.stopPropagation(); handleDismissMatch(match.trial.id); }}
+                    title={language === 'hi' ? 'हटाएं' : 'Dismiss'}
+                  />
+                </Space>
+              </div>
+            </div>
           ))}
         </Space>
       )}

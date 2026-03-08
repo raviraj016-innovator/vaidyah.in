@@ -2,25 +2,42 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import config from './config';
 import { healthCheck as dbHealthCheck } from './db';
 import { authenticate, authorize } from './middleware/auth';
 import { errorHandler, notFoundHandler, ValidationError } from './middleware/errorHandler';
 import { abdmService } from './services/abdm';
+import { wearableService } from './services/wearables';
+import { whatsappService } from './services/whatsapp';
 import {
   ServiceResponse,
   ABHAVerificationSchema,
   ConsentRequestSchema,
   ConsultationPushSchema,
   WearableConnectSchema,
+  WearableDisconnectSchema,
+  WearableSyncSchema,
   WhatsAppSendSchema,
   WhatsAppTemplateSendSchema,
+  WhatsAppMediaSendSchema,
   WhatsAppWebhookPayload,
   ScheduledNotification,
 } from './types';
 import { query, queryOne, queryMany } from './db';
+
+// ─── Audit Logging ──────────────────────────────────────────────────────────
+
+const _auditLog = async (event: Record<string, unknown>) => {
+  console.log('[AUDIT]', JSON.stringify(event));
+};
+console.log('[integration-service] Audit logging initialized');
+
+async function audit(action: string, resource: string, resourceId: string, userId: string, details: Record<string, unknown> = {}) {
+  await _auditLog({ action, resource, resourceId, userId, details }).catch((err) =>
+    console.error('[AUDIT] Failed:', (err as Error).message)
+  );
+}
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -77,6 +94,7 @@ abdmRouter.param('patientId', (_req, res, next, value) => {
   next();
 });
 
+// POST /abdm/verify — Verify ABHA ID
 abdmRouter.post('/verify', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ABHAVerificationSchema.parse(req.body);
@@ -93,6 +111,7 @@ abdmRouter.post('/verify', authorize('doctor', 'admin', 'system'), async (req: R
   }
 });
 
+// POST /abdm/consent/request — Request consent
 abdmRouter.post('/consent/request', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ConsentRequestSchema.parse(req.body);
@@ -110,6 +129,7 @@ abdmRouter.post('/consent/request', authorize('doctor', 'admin', 'system'), asyn
   }
 });
 
+// POST /abdm/consent/status — Get consent status
 abdmRouter.post('/consent/status', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { requestId } = req.body;
@@ -130,10 +150,58 @@ abdmRouter.post('/consent/status', authorize('doctor', 'admin', 'system'), async
   }
 });
 
+// POST /abdm/consent/revoke — Revoke consent
+abdmRouter.post('/consent/revoke', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { requestId } = req.body;
+    if (!requestId || typeof requestId !== 'string') {
+      throw new ValidationError('requestId is required');
+    }
+
+    const result = await abdmService.revokeConsent(requestId);
+
+    const response: ServiceResponse = {
+      success: true,
+      data: result,
+      message: 'Consent revoked successfully',
+      timestamp: new Date().toISOString(),
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /abdm/consent/:patientId — List consents for a patient
+abdmRouter.get('/consent/:patientId', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { patientId } = req.params;
+    const consents = await abdmService.listConsents(patientId);
+
+    const response: ServiceResponse = {
+      success: true,
+      data: consents,
+      message: `Retrieved ${consents.length} consent(s)`,
+      timestamp: new Date().toISOString(),
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /abdm/records/:patientId — Fetch health records
 abdmRouter.get('/records/:patientId', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { patientId } = req.params;
     const records = await abdmService.pullHealthRecords(patientId);
+
+    // Audit: PHI access via ABDM health records
+    const user = (req as any).user;
+    await audit('PHI_ACCESS', 'abdm_health_records', patientId, user?.userId ?? 'system', {
+      records_count: records.length,
+      access_type: 'pull',
+    });
 
     const response: ServiceResponse = {
       success: true,
@@ -147,6 +215,7 @@ abdmRouter.get('/records/:patientId', authorize('doctor', 'admin', 'system'), as
   }
 });
 
+// POST /abdm/records/push — Push health record to ABDM
 abdmRouter.post('/records/push', authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = ConsultationPushSchema.parse(req.body);
@@ -164,86 +233,78 @@ abdmRouter.post('/records/push', authorize('doctor', 'admin', 'system'), async (
   }
 });
 
+// POST /abdm/callback/consent — ABDM gateway consent notification callback
+abdmRouter.post('/callback/consent', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Verify ABDM gateway callback authenticity via X-ABDM-Signature header
+    const signature = req.headers['x-abdm-signature'] as string;
+    if (!signature) {
+      res.status(401).json({ error: 'Missing ABDM callback signature' });
+      return;
+    }
+    const abdmSecret = process.env.ABDM_WEBHOOK_SECRET;
+    if (abdmSecret) {
+      const crypto = await import('crypto');
+      const rawBody = (req as any).rawBody;
+      const expected = crypto.createHmac('sha256', abdmSecret)
+        .update(rawBody || JSON.stringify(req.body))
+        .digest('hex');
+      if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) {
+        res.status(401).json({ error: 'Invalid ABDM callback signature' });
+        return;
+      }
+    }
+    await abdmService.handleConsentNotification(req.body);
+    res.sendStatus(202);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /abdm/callback/health-info — ABDM gateway health info notification callback
+abdmRouter.post('/callback/health-info', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Verify ABDM gateway callback authenticity via X-ABDM-Signature header
+    const signature = req.headers['x-abdm-signature'] as string;
+    if (!signature) {
+      res.status(401).json({ error: 'Missing ABDM callback signature' });
+      return;
+    }
+    const abdmSecret = process.env.ABDM_WEBHOOK_SECRET;
+    if (abdmSecret) {
+      const crypto = await import('crypto');
+      const rawBody = (req as any).rawBody;
+      const expected = crypto.createHmac('sha256', abdmSecret)
+        .update(rawBody || JSON.stringify(req.body))
+        .digest('hex');
+      if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) {
+        res.status(401).json({ error: 'Invalid ABDM callback signature' });
+        return;
+      }
+    }
+    await abdmService.handleHealthInfoNotification(req.body);
+    res.sendStatus(202);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use('/api/v1/abdm', abdmRouter);
 
 // ─── WhatsApp Routes ──────────────────────────────────────────────────────────
 
 const whatsappRouter = express.Router();
 
+// POST /whatsapp/send — Send WhatsApp message
 whatsappRouter.post('/send', authenticate, authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = WhatsAppSendSchema.parse(req.body);
-    const messageId = uuidv4();
+    const result = await whatsappService.sendMessage(validated);
 
-    await query(
-      `INSERT INTO whatsapp_messages (id, patient_id, phone_number, direction, message_type, content, language, status, created_at)
-       VALUES ($1, $2, $3, 'outbound', 'text', $4, $5, 'queued', NOW())`,
-      [messageId, validated.patientId, validated.phoneNumber, validated.message, validated.language]
-    );
-
-    const waPayload = {
-      messaging_product: 'whatsapp',
-      to: validated.phoneNumber.replace('+', ''),
-      type: 'text',
-      text: { body: validated.message },
-    };
-
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const waResponse = await fetch(
-        `${config.whatsapp.apiUrl}/${config.whatsapp.phoneNumberId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.whatsapp.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(waPayload),
-          signal: controller.signal,
-        }
-      );
-      clearTimeout(timeout);
-
-      const waData = await waResponse.json() as { messages?: Array<{ id: string }> };
-
-      if (waResponse.ok && waData.messages?.[0]?.id) {
-        await query(
-          `UPDATE whatsapp_messages SET status = 'sent', whatsapp_message_id = $1, sent_at = NOW() WHERE id = $2`,
-          [waData.messages[0].id, messageId]
-        );
-      } else {
-        await query(
-          `UPDATE whatsapp_messages SET status = 'failed', error_message = $1 WHERE id = $2`,
-          [JSON.stringify(waData), messageId]
-        );
-      }
-    } catch (sendError) {
-      await query(
-        `UPDATE whatsapp_messages SET status = 'failed', error_message = $1 WHERE id = $2`,
-        [sendError instanceof Error ? sendError.message : 'Send failed', messageId]
-      );
-    }
-
-    const message = await queryOne<{ status: string }>(
-      `SELECT id, patient_id, phone_number, status, whatsapp_message_id, created_at FROM whatsapp_messages WHERE id = $1`,
-      [messageId]
-    );
-
-    if (!message) {
-      const response: ServiceResponse = {
-        success: false,
-        error: 'Failed to retrieve created message',
-        timestamp: new Date().toISOString(),
-      };
-      res.status(500).json(response);
-      return;
-    }
-
-    const isFailed = message.status === 'failed';
+    const isFailed = result.status === 'failed';
     const response: ServiceResponse = {
       success: !isFailed,
-      data: message,
+      data: result,
       ...(isFailed && { error: 'WhatsApp message send failed' }),
       timestamp: new Date().toISOString(),
     };
@@ -253,89 +314,16 @@ whatsappRouter.post('/send', authenticate, authorize('doctor', 'admin', 'system'
   }
 });
 
+// POST /whatsapp/template — Send template message
 whatsappRouter.post('/template', authenticate, authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = WhatsAppTemplateSendSchema.parse(req.body);
-    const messageId = uuidv4();
+    const result = await whatsappService.sendTemplateMessage(validated);
 
-    await query(
-      `INSERT INTO whatsapp_messages (id, patient_id, phone_number, direction, message_type, template_type, content, language, status, created_at)
-       VALUES ($1, $2, $3, 'outbound', 'template', $4, $5, $6, 'queued', NOW())`,
-      [
-        messageId,
-        validated.patientId,
-        validated.phoneNumber,
-        validated.templateType,
-        JSON.stringify(validated.parameters),
-        validated.language,
-      ]
-    );
-
-    const templateComponents = [{
-      type: 'body',
-      parameters: Object.values(validated.parameters).map(value => ({
-        type: 'text',
-        text: value,
-      })),
-    }];
-
-    const waPayload = {
-      messaging_product: 'whatsapp',
-      to: validated.phoneNumber.replace('+', ''),
-      type: 'template',
-      template: {
-        name: validated.templateType,
-        language: { code: validated.language === 'en' ? 'en_US' : `${validated.language}_IN` },
-        components: templateComponents,
-      },
-    };
-
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const waResponse = await fetch(
-        `${config.whatsapp.apiUrl}/${config.whatsapp.phoneNumberId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.whatsapp.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(waPayload),
-          signal: controller.signal,
-        }
-      );
-      clearTimeout(timeout);
-
-      const waData = await waResponse.json() as { messages?: Array<{ id: string }> };
-
-      if (waResponse.ok && waData.messages?.[0]?.id) {
-        await query(
-          `UPDATE whatsapp_messages SET status = 'sent', whatsapp_message_id = $1, sent_at = NOW() WHERE id = $2`,
-          [waData.messages[0].id, messageId]
-        );
-      } else {
-        await query(
-          `UPDATE whatsapp_messages SET status = 'failed', error_message = $1 WHERE id = $2`,
-          [JSON.stringify(waData), messageId]
-        );
-      }
-    } catch (sendError) {
-      await query(
-        `UPDATE whatsapp_messages SET status = 'failed', error_message = $1 WHERE id = $2`,
-        [sendError instanceof Error ? sendError.message : 'Send failed', messageId]
-      );
-    }
-
-    const message = await queryOne(
-      `SELECT id, patient_id, phone_number, template_type, status, whatsapp_message_id, created_at FROM whatsapp_messages WHERE id = $1`,
-      [messageId]
-    );
-
-    const isFailed = (message as any)?.status === 'failed';
+    const isFailed = result.status === 'failed';
     const response: ServiceResponse = {
       success: !isFailed,
-      data: message,
+      data: result,
       ...(isFailed && { error: 'WhatsApp template message send failed' }),
       timestamp: new Date().toISOString(),
     };
@@ -345,18 +333,50 @@ whatsappRouter.post('/template', authenticate, authorize('doctor', 'admin', 'sys
   }
 });
 
+// POST /whatsapp/media — Send media message (prescription images, lab reports)
+whatsappRouter.post('/media', authenticate, authorize('doctor', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = WhatsAppMediaSendSchema.parse(req.body);
+    const result = await whatsappService.sendMediaMessage(validated);
+
+    const isFailed = result.status === 'failed';
+    const response: ServiceResponse = {
+      success: !isFailed,
+      data: result,
+      ...(isFailed && { error: 'WhatsApp media message send failed' }),
+      timestamp: new Date().toISOString(),
+    };
+    res.status(isFailed ? 502 : 201).json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /whatsapp/templates — List available templates
+whatsappRouter.get('/templates', authenticate, authorize('doctor', 'admin', 'system'), (_req: Request, res: Response) => {
+  const templates = whatsappService.getAvailableTemplates();
+  const response: ServiceResponse = {
+    success: true,
+    data: templates,
+    timestamp: new Date().toISOString(),
+  };
+  res.json(response);
+});
+
+// GET /whatsapp/webhook — WhatsApp webhook verification (Meta challenge)
 whatsappRouter.get('/webhook', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'] as string;
   const token = req.query['hub.verify_token'] as string;
   const challenge = req.query['hub.challenge'] as string;
 
-  if (mode === 'subscribe' && token === config.whatsapp.webhookVerifyToken) {
+  if (whatsappService.verifyWebhookSubscription(mode, token)) {
     res.status(200).send(challenge);
   } else {
     res.status(403).json({ error: 'Verification failed' });
   }
 });
 
+// POST /whatsapp/webhook — Receive webhook events
 whatsappRouter.post('/webhook', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Verify Meta/WhatsApp webhook signature
@@ -365,90 +385,23 @@ whatsappRouter.post('/webhook', async (req: Request, res: Response, next: NextFu
       res.status(401).json({ error: 'Missing webhook signature' });
       return;
     }
-    if (!config.whatsapp.appSecret) {
-      console.error('[Webhook] WhatsApp appSecret is not configured — rejecting webhook');
-      res.status(500).json({ error: 'Webhook signature verification is not configured' });
-      return;
-    }
+
     const rawBody = (req as any).rawBody;
     if (!rawBody) {
-      console.error('[Webhook] rawBody not preserved — ensure body parser verify function is configured');
+      console.error('[Webhook] rawBody not preserved');
       res.status(500).json({ error: 'Webhook verification misconfigured' });
       return;
     }
-    const expectedSig = 'sha256=' + crypto.createHmac('sha256', config.whatsapp.appSecret)
-      .update(rawBody)
-      .digest('hex');
-    // Hash both to ensure equal length, then use timingSafeEqual to prevent timing attacks
-    const sigHash = crypto.createHash('sha256').update(signature).digest();
-    const expectedHash = crypto.createHash('sha256').update(expectedSig).digest();
-    if (!crypto.timingSafeEqual(sigHash, expectedHash)) {
+
+    if (!whatsappService.verifyWebhookSignature(rawBody, signature)) {
       res.status(401).json({ error: 'Invalid webhook signature' });
       return;
     }
 
     const payload = req.body as WhatsAppWebhookPayload;
+    const result = await whatsappService.processWebhookPayload(payload);
 
-    if (!payload.entry?.length) {
-      res.sendStatus(200);
-      return;
-    }
-
-    for (const entry of payload.entry) {
-      for (const change of entry.changes) {
-        if (change.value.statuses) {
-          for (const status of change.value.statuses) {
-            const statusMap: Record<string, string> = {
-              sent: 'sent',
-              delivered: 'delivered',
-              read: 'read',
-              failed: 'failed',
-            };
-
-            const mappedStatus = statusMap[status.status] || status.status;
-            const timestampField = status.status === 'delivered' ? 'delivered_at' : status.status === 'read' ? 'read_at' : null;
-
-            let updateQuery = `UPDATE whatsapp_messages SET status = $1`;
-            const params: unknown[] = [mappedStatus];
-
-            if (timestampField) {
-              updateQuery += `, ${timestampField} = NOW()`;
-            }
-
-            if (status.status === 'failed' && status.errors?.length) {
-              updateQuery += `, error_code = $${params.length + 1}, error_message = $${params.length + 2}`;
-              params.push(String(status.errors[0].code), status.errors[0].title);
-            }
-
-            updateQuery += ` WHERE whatsapp_message_id = $${params.length + 1}`;
-            params.push(status.id);
-
-            await query(updateQuery, params);
-          }
-        }
-
-        if (change.value.messages) {
-          for (const message of change.value.messages) {
-            const inboundId = uuidv4();
-
-            await query(
-              `INSERT INTO whatsapp_messages (id, phone_number, direction, message_type, content, language, status, whatsapp_message_id, sent_at, created_at)
-               VALUES ($1, $2, 'inbound', $3, $4, 'en', 'delivered', $5, to_timestamp($6::bigint), NOW())
-               ON CONFLICT (whatsapp_message_id) DO NOTHING`,
-              [
-                inboundId,
-                message.from,
-                message.type,
-                message.text?.body || JSON.stringify(message.interactive || {}),
-                message.id,
-                message.timestamp,
-              ]
-            );
-          }
-        }
-      }
-    }
-
+    console.log(`[WhatsApp Webhook] Processed: ${result.statusUpdates} status update(s), ${result.inboundMessages} inbound message(s)`);
     res.sendStatus(200);
   } catch (error) {
     next(error);
@@ -469,9 +422,71 @@ wearableRouter.param('patientId', (_req, res, next, value) => {
   next();
 });
 
-wearableRouter.post('/sync', authorize('patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+// POST /wearables/connect — Connect wearable device
+wearableRouter.post('/connect', authorize('patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validated = WearableConnectSchema.parse(req.body);
+
+    if (req.user?.role === 'patient' && req.user?.userId !== validated.patientId) {
+      res.status(403).json({
+        success: false,
+        error: 'Patients can only connect their own wearable devices',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const result = await wearableService.connect(
+      validated.patientId,
+      validated.platform,
+      validated.authorizationCode,
+      validated.redirectUri,
+    );
+
+    const response: ServiceResponse = {
+      success: true,
+      data: result,
+      message: `${validated.platform} connected successfully`,
+      timestamp: new Date().toISOString(),
+    };
+    res.status(201).json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /wearables/disconnect — Disconnect device
+wearableRouter.post('/disconnect', authorize('patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = WearableDisconnectSchema.parse(req.body);
+
+    if (req.user?.role === 'patient' && req.user?.userId !== validated.patientId) {
+      res.status(403).json({
+        success: false,
+        error: 'Patients can only disconnect their own wearable devices',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const result = await wearableService.disconnect(validated.patientId, validated.platform);
+
+    const response: ServiceResponse = {
+      success: true,
+      data: result,
+      message: `${validated.platform} disconnected successfully`,
+      timestamp: new Date().toISOString(),
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /wearables/sync — Sync latest data
+wearableRouter.post('/sync', authorize('patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const validated = WearableSyncSchema.parse(req.body);
 
     if (req.user?.role === 'patient' && req.user?.userId !== validated.patientId) {
       res.status(403).json({
@@ -481,110 +496,37 @@ wearableRouter.post('/sync', authorize('patient', 'admin', 'system'), async (req
       });
       return;
     }
-    const syncId = uuidv4();
-    const syncStartedAt = new Date().toISOString();
 
-    let tokenEndpoint: string;
-    let tokenPayload: Record<string, string>;
-
-    if (validated.platform === 'google_fit') {
-      tokenEndpoint = config.wearables.googleFit.tokenUrl;
-      tokenPayload = {
-        grant_type: 'authorization_code',
-        code: validated.authorizationCode,
-        redirect_uri: validated.redirectUri,
-        client_id: config.wearables.googleFit.clientId,
-        client_secret: config.wearables.googleFit.clientSecret,
-      };
-    } else {
-      tokenEndpoint = `${config.wearables.appleHealth.serverUrl}/auth/token`;
-      tokenPayload = {
-        grant_type: 'authorization_code',
-        code: validated.authorizationCode,
-        redirect_uri: validated.redirectUri,
-      };
-    }
-
-    let syncResult;
-    try {
-      const fetchController = new AbortController();
-      const fetchTimeout = setTimeout(() => fetchController.abort(), 10000);
-      const tokenResponse = await fetch(tokenEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams(tokenPayload),
-        signal: fetchController.signal,
-      });
-      clearTimeout(fetchTimeout);
-
-      if (!tokenResponse.ok) {
-        throw new Error(`Token endpoint returned ${tokenResponse.status}`);
-      }
-      const tokenData = await tokenResponse.json() as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string };
-      if (!tokenData.access_token) {
-        throw new Error(`Token fetch failed: ${tokenData.error || 'Missing access_token'}`);
-      }
-
-      await query(
-        `INSERT INTO wearable_connections (id, patient_id, platform, access_token, refresh_token, expires_at, scopes, connected_at, last_sync_at, is_active)
-         VALUES ($1, $2, $3, $4, $5, NOW() + interval '1 second' * $6, $7, NOW(), NOW(), true)
-         ON CONFLICT (patient_id, platform) DO UPDATE SET
-           access_token = EXCLUDED.access_token,
-           refresh_token = EXCLUDED.refresh_token,
-           expires_at = EXCLUDED.expires_at,
-           last_sync_at = NOW(),
-           is_active = true`,
-        [
-          uuidv4(),
-          validated.patientId,
-          validated.platform,
-          tokenData.access_token,
-          tokenData.refresh_token,
-          tokenData.expires_in || 3600,
-          tokenData.scope || '',
-        ]
-      );
-
-      syncResult = {
-        syncId,
-        patientId: validated.patientId,
-        platform: validated.platform,
-        status: 'completed',
-        syncStartedAt,
-        syncCompletedAt: new Date().toISOString(),
-      };
-    } catch (syncError) {
-      syncResult = {
-        syncId,
-        patientId: validated.patientId,
-        platform: validated.platform,
-        status: 'failed',
-        error: syncError instanceof Error ? syncError.message : 'Sync failed',
-        syncStartedAt,
-        syncCompletedAt: new Date().toISOString(),
-      };
-    }
+    const result = await wearableService.syncData(
+      validated.patientId,
+      validated.platform,
+      validated.dataTypes,
+    );
 
     const response: ServiceResponse = {
-      success: syncResult.status === 'completed',
-      data: syncResult,
+      success: !result.errors?.length,
+      data: result,
+      message: `Synced ${result.recordsSynced} record(s) from ${validated.platform}`,
       timestamp: new Date().toISOString(),
     };
-    res.status(syncResult.status === 'completed' ? 200 : 502).json(response);
+    res.status(result.errors?.length ? 207 : 200).json(response);
   } catch (error) {
     next(error);
   }
 });
 
+// GET /wearables/data/:patientId — Get patient wearable data
 wearableRouter.get('/data/:patientId', authorize('doctor', 'patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { patientId } = req.params;
     const user = (req as any).user;
+
     // Patients can only access their own data
     if (user?.role === 'patient' && user?.userId !== patientId) {
       res.status(403).json({ success: false, error: 'Patients can only access their own data' });
       return;
     }
+
     // Doctors must have an active care relationship with the patient
     if (user?.role === 'doctor') {
       const rel = await queryOne('SELECT 1 FROM care_relationships WHERE doctor_id = $1 AND patient_id = $2 AND status = $3 LIMIT 1', [user.userId, patientId, 'active']);
@@ -593,9 +535,10 @@ wearableRouter.get('/data/:patientId', authorize('doctor', 'patient', 'admin', '
         return;
       }
     }
-    const { dataType, from, to, limit: queryLimit } = req.query;
 
-    // Validate dataType against whitelist to prevent enumeration
+    const { dataType, from, to, limit: queryLimit, platform } = req.query;
+
+    // Validate dataType against whitelist
     const VALID_DATA_TYPES = [
       'heart_rate', 'steps', 'blood_glucose', 'spo2', 'sleep',
       'blood_pressure', 'weight', 'calories_burned', 'active_minutes',
@@ -603,6 +546,13 @@ wearableRouter.get('/data/:patientId', authorize('doctor', 'patient', 'admin', '
     ];
     if (dataType && !VALID_DATA_TYPES.includes(String(dataType))) {
       res.status(400).json({ success: false, error: 'Invalid dataType' });
+      return;
+    }
+
+    // Validate platform
+    const VALID_PLATFORMS = ['apple_health', 'google_fit', 'fitbit'];
+    if (platform && !VALID_PLATFORMS.includes(String(platform))) {
+      res.status(400).json({ success: false, error: 'Invalid platform' });
       return;
     }
 
@@ -627,6 +577,11 @@ wearableRouter.get('/data/:patientId', authorize('doctor', 'patient', 'admin', '
       sql += ` AND data_type = $${params.length}`;
     }
 
+    if (platform) {
+      params.push(platform);
+      sql += ` AND platform = $${params.length}`;
+    }
+
     if (from) {
       params.push(from);
       sql += ` AND start_time >= $${params.length}`;
@@ -645,6 +600,13 @@ wearableRouter.get('/data/:patientId', authorize('doctor', 'patient', 'admin', '
 
     const data = await queryMany(sql, params);
 
+    // Audit: wearable health data access (PHI)
+    await audit('PHI_ACCESS', 'wearable_data', patientId, user?.userId ?? 'system', {
+      data_type: dataType || 'all',
+      platform: platform || 'all',
+      records_returned: data.length,
+    });
+
     const response: ServiceResponse = {
       success: true,
       data,
@@ -656,15 +618,41 @@ wearableRouter.get('/data/:patientId', authorize('doctor', 'patient', 'admin', '
   }
 });
 
+// GET /wearables/connections/:patientId — Get active wearable connections
+wearableRouter.get('/connections/:patientId', authorize('patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { patientId } = req.params;
+
+    if (req.user?.role === 'patient' && req.user?.userId !== patientId) {
+      res.status(403).json({ success: false, error: 'Patients can only view their own connections' });
+      return;
+    }
+
+    const connections = await wearableService.getActiveConnections(patientId);
+
+    const response: ServiceResponse = {
+      success: true,
+      data: connections,
+      timestamp: new Date().toISOString(),
+    };
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /wearables/alerts/:patientId — Get health alerts
 wearableRouter.get('/alerts/:patientId', authorize('doctor', 'patient', 'admin', 'system'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { patientId } = req.params;
     const user = (req as any).user;
+
     // Patients can only access their own alerts
     if (user?.role === 'patient' && user?.userId !== patientId) {
       res.status(403).json({ success: false, error: 'Patients can only access their own data' });
       return;
     }
+
     // Doctors must have an active care relationship with the patient
     if (user?.role === 'doctor') {
       const rel = await queryOne('SELECT 1 FROM care_relationships WHERE doctor_id = $1 AND patient_id = $2 AND status = $3 LIMIT 1', [user.userId, patientId, 'active']);
@@ -673,6 +661,7 @@ wearableRouter.get('/alerts/:patientId', authorize('doctor', 'patient', 'admin',
         return;
       }
     }
+
     const { severity, acknowledged } = req.query;
 
     let sql = `SELECT id, patient_id AS "patientId", alert_type AS "alertType",
@@ -783,11 +772,13 @@ notificationRouter.get('/:patientId', authorize('doctor', 'patient', 'admin', 's
   try {
     const { patientId } = req.params;
     const user = (req as any).user;
+
     // Patients can only access their own notifications
     if (user?.role === 'patient' && user?.userId !== patientId) {
       res.status(403).json({ success: false, error: 'Patients can only access their own notifications' });
       return;
     }
+
     // Doctors must have an active care relationship with the patient
     if (user?.role === 'doctor') {
       const rel = await queryOne('SELECT 1 FROM care_relationships WHERE doctor_id = $1 AND patient_id = $2 AND status = $3 LIMIT 1', [user.userId, patientId, 'active']);
@@ -796,6 +787,7 @@ notificationRouter.get('/:patientId', authorize('doctor', 'patient', 'admin', 's
         return;
       }
     }
+
     const { status, type } = req.query;
 
     let sql = `SELECT id, patient_id AS "patientId", type, scheduled_for AS "scheduledFor",

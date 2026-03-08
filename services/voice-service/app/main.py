@@ -23,7 +23,7 @@ from app import __service_name__, __version__
 from app.config import get_settings
 from app.middleware.auth import JWTAuthMiddleware
 from app.models import ErrorResponse, HealthResponse
-from app.routers import language, prosody, transcribe, tts
+from app.routers import language, prosody, storage, transcribe, tts
 
 # ---------------------------------------------------------------------------
 # Structured Logging Setup
@@ -133,8 +133,8 @@ app = FastAPI(
 
 # -- CORS ---
 _filtered_origins = [o for o in settings.cors_origins if "*" not in o]
-if not _filtered_origins and not _is_prod:
-    _filtered_origins = ["*"]
+if not _filtered_origins:
+    _filtered_origins = ["http://localhost:3000", "http://localhost:5173"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_filtered_origins,
@@ -146,6 +146,18 @@ app.add_middleware(
 
 # -- JWT Auth Middleware ---
 app.add_middleware(JWTAuthMiddleware)
+
+# -- Security Headers ---
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "0"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -170,6 +182,11 @@ app.include_router(
     language.router,
     prefix="/api/v1/voice",
     tags=["Language Detection"],
+)
+app.include_router(
+    storage.router,
+    prefix="/api/v1/voice",
+    tags=["Recording Storage"],
 )
 
 # ---------------------------------------------------------------------------

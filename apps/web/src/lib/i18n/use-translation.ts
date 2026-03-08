@@ -2,10 +2,24 @@
 
 import { useCallback } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
+import type { Locale } from './config';
 import en from './dictionaries/en.json';
 import hi from './dictionaries/hi.json';
+import bn from './dictionaries/bn.json';
+import ta from './dictionaries/ta.json';
+import te from './dictionaries/te.json';
+import mr from './dictionaries/mr.json';
+import gu from './dictionaries/gu.json';
+import kn from './dictionaries/kn.json';
+import ml from './dictionaries/ml.json';
+import pa from './dictionaries/pa.json';
+import orDict from './dictionaries/or.json';
+import ur from './dictionaries/ur.json';
+import asDict from './dictionaries/as.json';
 
-const dictionaries = { en, hi } as const;
+const dictionaries: Record<Locale, typeof en> = {
+  en, hi, bn, ta, te, mr, gu, kn, ml, pa, or: orDict, ur, as: asDict,
+};
 
 export function useTranslation() {
   const language = useAuthStore((s) => s.language);

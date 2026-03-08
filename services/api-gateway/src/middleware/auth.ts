@@ -147,9 +147,9 @@ export function authenticate(
     return;
   }
 
-  // In development with no Cognito configured, support a dev bypass
-  if (config.server.env === 'development' && process.env.NODE_ENV !== 'production' && !config.cognito.userPoolId && process.env.ALLOW_DEV_AUTH === 'true') {
-    handleDevToken(token, req, next);
+  // In development with no Cognito configured, verify JWTs signed with the local dev secret
+  if (config.server.env === 'development' && process.env.NODE_ENV !== 'production' && !config.cognito.userPoolId) {
+    verifyDevJwt(token, req, next);
     return;
   }
 
@@ -161,40 +161,44 @@ export function authenticate(
     .catch(next);
 }
 
+const DEV_JWT_SECRET = process.env.JWT_SECRET ?? '';
+if (!DEV_JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET must be set in production');
+}
+
 /**
- * Development-only: accept a JSON-encoded token payload for local testing
- * when no Cognito pool is configured. The token should be a base64-encoded
- * JSON string: { sub, email, name, role, facilityId }.
+ * Development-only: verify JWTs signed with the local dev secret (HS256)
+ * when no Cognito pool is configured.
  */
-function handleDevToken(
+function verifyDevJwt(
   token: string,
   req: AuthenticatedRequest,
   next: NextFunction,
 ): void {
-  if (config.server.env !== 'development' || process.env.NODE_ENV === 'production') {
-    next(AppError.unauthorized('Dev token bypass is only allowed in development'));
-    return;
-  }
-
   try {
-    const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
-    const user = {
-      sub: decoded.sub ?? 'dev-user',
-      email: decoded.email ?? 'dev@vaidyah.local',
-      name: decoded.name ?? 'Dev User',
-      role: isValidRole(decoded.role) ? decoded.role : 'patient' as UserRole,
-      facilityId: decoded.facilityId ?? 'dev-facility',
+    const decoded = jwt.verify(token, DEV_JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as Record<string, unknown>;
+
+    const user: AuthenticatedUser = {
+      sub: (decoded.sub as string) ?? '',
+      email: (decoded.email as string) ?? '',
+      name: (decoded.name as string) ?? '',
+      role: mapCognitoRole(decoded),
+      facilityId: (decoded['custom:facilityId'] as string) ?? undefined,
+      iat: decoded.iat as number | undefined,
+      exp: decoded.exp as number | undefined,
     };
 
-    console.warn(
-      `[Auth] Dev token bypass used for user="${user.sub}" role="${user.role}". ` +
-      'This must NEVER appear in production logs.',
-    );
+    if (!user.sub) {
+      next(AppError.unauthorized('Token missing subject claim'));
+      return;
+    }
 
     req.user = user;
     next();
   } catch {
-    next(AppError.unauthorized('Invalid development token (expected base64 JSON)'));
+    next(AppError.unauthorized('Invalid or expired dev JWT'));
   }
 }
 
@@ -241,8 +245,8 @@ export function optionalAuth(
     return;
   }
 
-  if (config.server.env === 'development' && process.env.NODE_ENV !== 'production' && !config.cognito.userPoolId && process.env.ALLOW_DEV_AUTH === 'true') {
-    handleDevToken(token, req, next);
+  if (config.server.env === 'development' && process.env.NODE_ENV !== 'production' && !config.cognito.userPoolId) {
+    verifyDevJwt(token, req, next);
     return;
   }
 

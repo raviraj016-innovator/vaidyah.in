@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Card,
   Row,
@@ -21,37 +22,16 @@ import {
   PlusCircleOutlined,
   MedicineBoxOutlined,
   WarningOutlined,
+  ExperimentOutlined,
+  VideoCameraOutlined,
+  AlertOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, TriageResult } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { TriageBadge } from '@/components/data-display/triage-badge';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
 
-// ---------------------------------------------------------------------------
-// Mock triage result
-// ---------------------------------------------------------------------------
-
-const MOCK_TRIAGE: TriageResult = {
-  category: 'B',
-  urgencyScore: 72,
-  acuityLevel: 'High',
-  redFlags: [
-    'Persistent high fever (>3 days)',
-    'Fever unresponsive to paracetamol',
-  ],
-  contributingFactors: [
-    'Fever: 101.8\u00b0F for 3 days',
-    'Body aches and fatigue',
-    'Patient appears anxious (prosody: 60% anxiety)',
-    'Mild dehydration signs',
-    'No significant past medical history',
-  ],
-  recommendation:
-    'Refer to Medical Officer for evaluation. Suspected viral illness with potential for dengue/malaria. Blood tests recommended: CBC, Dengue NS1, Malarial parasite. Start antipyretic and ORS.',
-  recommendationHi:
-    'चिकित्सा अधिकारी को रेफर करें। डेंगू/मलेरिया की संभावना के साथ वायरल बीमारी का संदेह। रक्त परीक्षण की सिफारिश: CBC, डेंगू NS1, मलेरिया परजीवी। ज्वरनाशक और ORS शुरू करें।',
-  referralType: 'Medical Officer - PHC',
-};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -67,14 +47,39 @@ export default function TriageResultPage() {
   const storeTriageResult = useSessionStore((s) => s.triageResult);
   const setTriageResult = useSessionStore((s) => s.setTriageResult);
 
-  // Apply mock to store for downstream usage when no triage result exists
-  useEffect(() => {
-    if (!storeTriageResult) {
-      setTriageResult(MOCK_TRIAGE);
-    }
-  }, [storeTriageResult, setTriageResult]);
+  // Fetch triage result from API
+  const { data: apiTriageData } = useQuery({
+    queryKey: ['nurse', 'triage', sessionId],
+    queryFn: fetchWithFallback<{ success: boolean; data: any }>(
+      `/sessions/${sessionId}/triage`,
+    ),
+    staleTime: 60_000,
+  });
 
-  const triageResult = storeTriageResult ?? MOCK_TRIAGE;
+  // Apply API data to store
+  useEffect(() => {
+    const apiResult = apiTriageData?.data;
+    if (apiResult && !storeTriageResult) {
+      setTriageResult({
+        category: apiResult.triage_level ?? 'B',
+        urgencyScore: parseFloat(apiResult.urgency_score) || 50,
+        acuityLevel: parseFloat(apiResult.urgency_score) >= 70 ? 'High' : parseFloat(apiResult.urgency_score) >= 40 ? 'Medium' : 'Low',
+        redFlags: apiResult.red_flags ?? [],
+        contributingFactors: apiResult.scoring_breakdown?.factors ?? [],
+        recommendation: apiResult.recommended_action ?? '',
+        referralType: apiResult.clinical_impression ?? undefined,
+        differentialDiagnoses: apiResult.differential_diagnoses ?? undefined,
+        nurseProtocol: apiResult.nurse_protocol ?? undefined,
+        nurseProtocolHi: apiResult.nurse_protocol_hi ?? undefined,
+        prescriptionSuggestion: apiResult.prescription_suggestion ?? undefined,
+        prescriptionSuggestionHi: apiResult.prescription_suggestion_hi ?? undefined,
+        teleconsultRequired: apiResult.teleconsult_required ?? false,
+        emergencyRequired: apiResult.emergency_required ?? false,
+      });
+    }
+  }, [apiTriageData, storeTriageResult, setTriageResult]);
+
+  const triageResult = storeTriageResult;
 
   if (!patient) {
     return (
@@ -84,6 +89,19 @@ export default function TriageResultPage() {
       >
         <Button type="primary" onClick={() => router.push('/nurse/patient-intake')}>
           Start Consultation
+        </Button>
+      </Empty>
+    );
+  }
+
+  if (!triageResult) {
+    return (
+      <Empty
+        description="Triage result not available. The API may be unreachable."
+        style={{ marginTop: 80 }}
+      >
+        <Button type="primary" onClick={() => router.push('/nurse/dashboard')}>
+          Back to Dashboard
         </Button>
       </Empty>
     );
@@ -182,6 +200,74 @@ export default function TriageResultPage() {
         </div>
       )}
 
+      {/* Differential Diagnoses with Confidence Bars */}
+      {triageResult.differentialDiagnoses && triageResult.differentialDiagnoses.length > 0 && (
+        <Card
+          title={
+            <Space>
+              <ExperimentOutlined />
+              {language === 'hi' ? 'विभेदक निदान' : 'Differential Diagnoses'}
+            </Space>
+          }
+          style={{ marginBottom: 24 }}
+        >
+          {triageResult.differentialDiagnoses.map((dx, index) => (
+            <div key={index} style={{ marginBottom: index < triageResult.differentialDiagnoses!.length - 1 ? 16 : 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <Typography.Text strong>{dx.name}</Typography.Text>
+                <Typography.Text
+                  style={{
+                    fontWeight: 600,
+                    color: dx.confidence >= 0.7 ? '#dc2626' : dx.confidence >= 0.4 ? '#d97706' : '#6b7280',
+                  }}
+                >
+                  {Math.round(dx.confidence * 100)}%
+                </Typography.Text>
+              </div>
+              <div
+                style={{
+                  height: 8,
+                  background: '#f3f4f6',
+                  borderRadius: 999,
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.round(dx.confidence * 100)}%`,
+                    background: dx.confidence >= 0.7 ? '#dc2626' : dx.confidence >= 0.4 ? '#d97706' : '#7c3aed',
+                    borderRadius: 999,
+                    transition: 'width 0.5s ease',
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* Nurse Protocol for Level A */}
+      {triageResult.category === 'A' && triageResult.nurseProtocol && (
+        <Card
+          style={{
+            marginBottom: 24,
+            borderLeft: '4px solid #16a34a',
+          }}
+          styles={{ body: { background: '#f0fdf4' } }}
+        >
+          <Typography.Title level={5} style={{ marginBottom: 12, color: '#16a34a' }}>
+            <MedicineBoxOutlined style={{ marginRight: 8 }} />
+            {language === 'hi' ? 'नर्स प्रोटोकॉल' : 'Nurse Protocol'}
+          </Typography.Title>
+          <Typography.Paragraph style={{ fontSize: 15, lineHeight: 1.8, margin: 0, color: '#374151' }}>
+            {language === 'hi' && triageResult.nurseProtocolHi
+              ? triageResult.nurseProtocolHi
+              : triageResult.nurseProtocol}
+          </Typography.Paragraph>
+        </Card>
+      )}
+
       {/* Contributing Factors */}
       <Card
         title={
@@ -201,6 +287,26 @@ export default function TriageResultPage() {
           )}
         />
       </Card>
+
+      {/* Prescription Suggestion */}
+      {triageResult.prescriptionSuggestion && (
+        <Card
+          title={
+            <Space>
+              <MedicineBoxOutlined />
+              {language === 'hi' ? 'प्रिस्क्रिप्शन सुझाव' : 'Prescription Suggestion'}
+            </Space>
+          }
+          style={{ marginBottom: 24 }}
+          styles={{ body: { background: '#fffbeb', borderRadius: 8 } }}
+        >
+          <Typography.Paragraph style={{ fontSize: 15, margin: 0, color: '#92400e' }}>
+            {language === 'hi' && triageResult.prescriptionSuggestionHi
+              ? triageResult.prescriptionSuggestionHi
+              : triageResult.prescriptionSuggestion}
+          </Typography.Paragraph>
+        </Card>
+      )}
 
       {/* Recommendation */}
       <Card
@@ -232,6 +338,36 @@ export default function TriageResultPage() {
           </>
         )}
       </Card>
+
+      {/* Quick Action Triggers */}
+      {(triageResult.teleconsultRequired || triageResult.emergencyRequired) && (
+        <Card style={{ marginBottom: 16 }}>
+          <Space size="middle" wrap>
+            {triageResult.teleconsultRequired && (
+              <Button
+                type="primary"
+                size="large"
+                icon={<VideoCameraOutlined />}
+                style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                onClick={() => router.push(`/nurse/telemedicine/${sessionId}`)}
+              >
+                {language === 'hi' ? 'टेलीकंसल्ट अनुरोध करें' : 'Request Teleconsult'}
+              </Button>
+            )}
+            {triageResult.emergencyRequired && (
+              <Button
+                type="primary"
+                danger
+                size="large"
+                icon={<AlertOutlined />}
+                onClick={() => router.push(`/nurse/emergency-alert/${sessionId}`)}
+              >
+                {language === 'hi' ? 'आपातकाल शुरू करें' : 'Trigger Emergency'}
+              </Button>
+            )}
+          </Space>
+        </Card>
+      )}
 
       {/* Actions */}
       <Card>

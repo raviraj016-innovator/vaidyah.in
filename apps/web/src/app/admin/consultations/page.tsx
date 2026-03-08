@@ -82,388 +82,6 @@ interface ConsultationRecord {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Mock Data
-// ---------------------------------------------------------------------------
-
-const MOCK_CONSULTATIONS: ConsultationRecord[] = [
-  {
-    id: 'c-001',
-    patientName: 'Ramesh Sahu',
-    patientAge: 45,
-    patientGender: 'Male',
-    consultationDate: '2026-03-02 09:15',
-    centerId: 'hc-001',
-    centerName: 'PHC Raipur Central',
-    nurseId: 'n-003',
-    nurseName: 'Sunita Patel',
-    status: 'completed',
-    triageCategory: 'B',
-    duration: '18 min',
-    symptoms: ['Chest Pain', 'Breathlessness', 'Fatigue'],
-    vitals: {
-      temperature: 99.2,
-      bloodPressureSystolic: 158,
-      bloodPressureDiastolic: 96,
-      heartRate: 92,
-      respiratoryRate: 22,
-      spO2: 94,
-    },
-    triageResult: {
-      category: 'B',
-      urgencyScore: 7,
-      redFlags: ['Elevated BP', 'Low SpO2'],
-      reasoning: 'Patient presents with chest pain and breathlessness combined with hypertension. Requires urgent evaluation.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'Chest pain for 2 days',
-        historyOfPresentIllness: 'Patient reports intermittent chest tightness since 2 days, worsens on exertion.',
-      },
-      objective: {
-        vitalSigns: 'T: 99.2F, BP: 158/96, HR: 92, RR: 22, SpO2: 94%',
-        physicalExamination: 'Mild tachycardia, bilateral basal crackles.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Hypertensive urgency with possible angina',
-        differentialDiagnoses: ['Unstable angina', 'Hypertensive crisis', 'GERD'],
-      },
-      plan: {
-        medications: ['Amlodipine 5mg', 'Aspirin 75mg', 'Sorbitrate 5mg SL PRN'],
-        followUp: 'Refer to district hospital for ECG and cardiac workup within 24 hours.',
-      },
-    },
-  },
-  {
-    id: 'c-002',
-    patientName: 'Savitri Devi',
-    patientAge: 32,
-    patientGender: 'Female',
-    consultationDate: '2026-03-02 09:45',
-    centerId: 'hc-001',
-    centerName: 'PHC Raipur Central',
-    nurseId: 'n-003',
-    nurseName: 'Sunita Patel',
-    status: 'completed',
-    triageCategory: 'C',
-    duration: '12 min',
-    symptoms: ['Fever', 'Cough', 'Body Ache'],
-    vitals: {
-      temperature: 100.8,
-      bloodPressureSystolic: 118,
-      bloodPressureDiastolic: 74,
-      heartRate: 88,
-      respiratoryRate: 18,
-      spO2: 98,
-    },
-    triageResult: {
-      category: 'C',
-      urgencyScore: 3,
-      redFlags: [],
-      reasoning: 'Common viral upper respiratory infection. Non-urgent, standard treatment protocol.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'Fever and cough for 3 days',
-        historyOfPresentIllness: 'Low grade fever with dry cough and generalized body aches. No travel history.',
-      },
-      objective: {
-        vitalSigns: 'T: 100.8F, BP: 118/74, HR: 88, RR: 18, SpO2: 98%',
-        physicalExamination: 'Throat mildly congested. Lungs clear.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Acute viral upper respiratory infection',
-        differentialDiagnoses: ['Influenza', 'Dengue fever'],
-      },
-      plan: {
-        medications: ['Paracetamol 500mg TDS', 'Cetirizine 10mg OD', 'Warm fluids'],
-        followUp: 'Review in 3 days if symptoms persist. Dengue NS1 if fever continues.',
-      },
-    },
-  },
-  {
-    id: 'c-003',
-    patientName: 'Kamal Nath Verma',
-    patientAge: 68,
-    patientGender: 'Male',
-    consultationDate: '2026-03-02 10:00',
-    centerId: 'hc-002',
-    centerName: 'CHC Bilaspur',
-    nurseId: 'n-004',
-    nurseName: 'Anjali Tiwari',
-    status: 'in_progress',
-    triageCategory: 'A',
-    duration: '22 min',
-    symptoms: ['Severe Chest Pain', 'Sweating', 'Nausea', 'Left Arm Pain'],
-    vitals: {
-      temperature: 98.6,
-      bloodPressureSystolic: 180,
-      bloodPressureDiastolic: 110,
-      heartRate: 110,
-      respiratoryRate: 26,
-      spO2: 91,
-    },
-    triageResult: {
-      category: 'A',
-      urgencyScore: 9,
-      redFlags: ['Severe chest pain radiating to left arm', 'Profuse sweating', 'Critically low SpO2', 'Tachycardia'],
-      reasoning: 'Classic presentation of acute myocardial infarction. Requires immediate emergency referral.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'Sudden severe chest pain with left arm radiation',
-        historyOfPresentIllness: 'Sudden onset crushing chest pain 1 hour ago, profuse sweating, nausea. Known diabetic and hypertensive.',
-      },
-      objective: {
-        vitalSigns: 'T: 98.6F, BP: 180/110, HR: 110, RR: 26, SpO2: 91%',
-        physicalExamination: 'Diaphoretic, distressed. S3 gallop. Bilateral basal rales.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Acute myocardial infarction (STEMI suspected)',
-        differentialDiagnoses: ['Aortic dissection', 'Pulmonary embolism'],
-      },
-      plan: {
-        medications: ['Aspirin 325mg stat', 'Clopidogrel 300mg stat', 'Oxygen via mask', 'GTN spray'],
-        followUp: 'EMERGENCY: 108 ambulance called. Transfer to nearest cardiac center (Bilaspur District Hospital).',
-      },
-    },
-  },
-  {
-    id: 'c-004',
-    patientName: 'Meera Bai',
-    patientAge: 28,
-    patientGender: 'Female',
-    consultationDate: '2026-03-01 14:30',
-    centerId: 'hc-003',
-    centerName: 'PHC Durg',
-    nurseId: 'n-005',
-    nurseName: 'Kavita Sahu',
-    status: 'completed',
-    triageCategory: 'C',
-    duration: '10 min',
-    symptoms: ['Headache', 'Nausea'],
-    vitals: {
-      temperature: 98.4,
-      bloodPressureSystolic: 112,
-      bloodPressureDiastolic: 70,
-      heartRate: 76,
-      respiratoryRate: 16,
-      spO2: 99,
-    },
-    triageResult: {
-      category: 'C',
-      urgencyScore: 2,
-      redFlags: [],
-      reasoning: 'Tension type headache. Vitals normal. Non-urgent.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'Headache for 2 days',
-        historyOfPresentIllness: 'Bilateral frontal headache, dull aching, associated with mild nausea. No visual changes.',
-      },
-      objective: {
-        vitalSigns: 'T: 98.4F, BP: 112/70, HR: 76, RR: 16, SpO2: 99%',
-        physicalExamination: 'No neck stiffness. Neurological exam normal.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Tension-type headache',
-        differentialDiagnoses: ['Migraine', 'Sinusitis'],
-      },
-      plan: {
-        medications: ['Paracetamol 500mg SOS', 'Domperidone 10mg BD'],
-        followUp: 'Follow up if headache persists beyond 5 days or new symptoms develop.',
-      },
-    },
-  },
-  {
-    id: 'c-005',
-    patientName: 'Bhola Prasad',
-    patientAge: 55,
-    patientGender: 'Male',
-    consultationDate: '2026-03-01 11:20',
-    centerId: 'hc-006',
-    centerName: 'CHC Jagdalpur',
-    nurseId: 'n-008',
-    nurseName: 'Meena Dewangan',
-    status: 'completed',
-    triageCategory: 'B',
-    duration: '15 min',
-    symptoms: ['High Blood Sugar', 'Frequent Urination', 'Blurred Vision'],
-    vitals: {
-      temperature: 98.8,
-      bloodPressureSystolic: 142,
-      bloodPressureDiastolic: 88,
-      heartRate: 80,
-      respiratoryRate: 18,
-      spO2: 97,
-    },
-    triageResult: {
-      category: 'B',
-      urgencyScore: 6,
-      redFlags: ['Uncontrolled diabetes', 'Blurred vision'],
-      reasoning: 'Uncontrolled Type 2 Diabetes with visual symptoms. Needs urgent diabetic workup and ophthalmology referral.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'High blood sugar and blurred vision',
-        historyOfPresentIllness: 'Known T2DM for 8 years, non-compliant with medication. RBS 340 mg/dL. Blurred vision for 1 week.',
-      },
-      objective: {
-        vitalSigns: 'T: 98.8F, BP: 142/88, HR: 80, RR: 18, SpO2: 97%',
-        physicalExamination: 'Dry oral mucosa. Fundoscopy not available at center.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Uncontrolled Type 2 Diabetes with suspected diabetic retinopathy',
-        differentialDiagnoses: ['Diabetic ketoacidosis', 'Hyperosmolar state'],
-      },
-      plan: {
-        medications: ['Metformin 1000mg BD', 'Glimepiride 2mg OD', 'Insulin Glargine 10U at bedtime'],
-        followUp: 'Urgent ophthalmology referral. HbA1c, renal function, urine microalbumin. Review in 1 week.',
-      },
-    },
-  },
-  {
-    id: 'c-006',
-    patientName: 'Anita Kumari',
-    patientAge: 24,
-    patientGender: 'Female',
-    consultationDate: '2026-03-01 16:00',
-    centerId: 'hc-001',
-    centerName: 'PHC Raipur Central',
-    nurseId: 'n-003',
-    nurseName: 'Sunita Patel',
-    status: 'completed',
-    triageCategory: 'C',
-    duration: '8 min',
-    symptoms: ['Skin Rash', 'Itching'],
-    vitals: {
-      temperature: 98.6,
-      bloodPressureSystolic: 110,
-      bloodPressureDiastolic: 68,
-      heartRate: 72,
-      respiratoryRate: 16,
-      spO2: 99,
-    },
-    triageResult: {
-      category: 'C',
-      urgencyScore: 2,
-      redFlags: [],
-      reasoning: 'Localized skin rash without systemic involvement. Non-urgent.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'Itchy skin rash on arms for 5 days',
-        historyOfPresentIllness: 'Red, itchy patches on both forearms. No history of food or drug allergy.',
-      },
-      objective: {
-        vitalSigns: 'T: 98.6F, BP: 110/68, HR: 72, RR: 16, SpO2: 99%',
-        physicalExamination: 'Erythematous papular rash on bilateral forearms. No vesicles.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Contact dermatitis',
-        differentialDiagnoses: ['Eczema', 'Scabies', 'Fungal infection'],
-      },
-      plan: {
-        medications: ['Calamine lotion', 'Cetirizine 10mg OD', 'Betamethasone cream BD'],
-        followUp: 'Review in 1 week. If no improvement, refer to dermatology.',
-      },
-    },
-  },
-  {
-    id: 'c-007',
-    patientName: 'Devendra Singh',
-    patientAge: 38,
-    patientGender: 'Male',
-    consultationDate: '2026-02-28 10:30',
-    centerId: 'hc-004',
-    centerName: 'Sub-Center Korba',
-    nurseId: 'n-006',
-    nurseName: 'Kavita Sahu',
-    status: 'completed',
-    triageCategory: 'B',
-    duration: '14 min',
-    symptoms: ['High Fever', 'Joint Pain', 'Rash'],
-    vitals: {
-      temperature: 103.2,
-      bloodPressureSystolic: 100,
-      bloodPressureDiastolic: 64,
-      heartRate: 102,
-      respiratoryRate: 20,
-      spO2: 97,
-    },
-    triageResult: {
-      category: 'B',
-      urgencyScore: 7,
-      redFlags: ['High fever', 'Tachycardia', 'Possible dengue'],
-      reasoning: 'High fever with rash and joint pain in endemic area. Dengue/Chikungunya suspected.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'High fever with body pain for 4 days',
-        historyOfPresentIllness: 'High-grade fever with severe joint pain and macular rash since day 3.',
-      },
-      objective: {
-        vitalSigns: 'T: 103.2F, BP: 100/64, HR: 102, RR: 20, SpO2: 97%',
-        physicalExamination: 'Maculopapular rash on trunk. Tender joints. No hepatosplenomegaly.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Suspected Dengue Fever',
-        differentialDiagnoses: ['Chikungunya', 'Malaria', 'Typhoid'],
-      },
-      plan: {
-        medications: ['Paracetamol 650mg TDS', 'ORS', 'IV fluids if oral intake poor'],
-        followUp: 'Dengue NS1, CBC with platelets daily. Admit if platelets < 100k. Watch for warning signs.',
-      },
-    },
-  },
-  {
-    id: 'c-008',
-    patientName: 'Pushpa Bai Thakur',
-    patientAge: 72,
-    patientGender: 'Female',
-    consultationDate: '2026-02-28 15:00',
-    centerId: 'hc-007',
-    centerName: 'District Hospital Ambikapur',
-    nurseId: 'n-010',
-    nurseName: 'Lakshmi Nag',
-    status: 'completed',
-    triageCategory: 'B',
-    duration: '20 min',
-    symptoms: ['Knee Pain', 'Difficulty Walking', 'Swelling'],
-    vitals: {
-      temperature: 98.4,
-      bloodPressureSystolic: 136,
-      bloodPressureDiastolic: 82,
-      heartRate: 74,
-      respiratoryRate: 16,
-      spO2: 97,
-    },
-    triageResult: {
-      category: 'B',
-      urgencyScore: 5,
-      redFlags: ['Severe mobility limitation'],
-      reasoning: 'Elderly patient with significant knee osteoarthritis limiting mobility. Needs orthopedic evaluation.',
-    },
-    soapNote: {
-      subjective: {
-        chiefComplaint: 'Bilateral knee pain for 6 months, worsening',
-        historyOfPresentIllness: 'Progressive bilateral knee pain, worse on standing and climbing stairs. Using walking stick.',
-      },
-      objective: {
-        vitalSigns: 'T: 98.4F, BP: 136/82, HR: 74, RR: 16, SpO2: 97%',
-        physicalExamination: 'Bilateral knee crepitus. Mild effusion right knee. Limited ROM.',
-      },
-      assessment: {
-        primaryDiagnosis: 'Bilateral knee osteoarthritis',
-        differentialDiagnoses: ['Rheumatoid arthritis', 'Gout'],
-      },
-      plan: {
-        medications: ['Diclofenac 50mg BD with food', 'Omeprazole 20mg OD', 'Calcium + Vit D3'],
-        followUp: 'X-ray both knees. Orthopedic referral. Physiotherapy exercises taught.',
-      },
-    },
-  },
-];
 
 const CENTER_OPTIONS = [
   { label: 'All Centers', value: '' },
@@ -501,13 +119,29 @@ export default function ConsultationsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedConsultation, setSelectedConsultation] = useState<ConsultationRecord | null>(null);
 
-  const { data: consultations = MOCK_CONSULTATIONS } = useQuery({
+  const { data: fetchedData } = useQuery({
     queryKey: ['admin', 'consultations'],
-    queryFn: fetchWithFallback<ConsultationRecord[]>(endpoints.consultations.list, MOCK_CONSULTATIONS),
+    queryFn: fetchWithFallback<ConsultationRecord[]>(endpoints.consultations.list),
     staleTime: 30_000,
   });
 
+  // Ensure consultations is always an array
+  const consultations: ConsultationRecord[] = useMemo(() => {
+    if (!fetchedData) return [];
+    if (Array.isArray(fetchedData)) return fetchedData;
+    // If data is wrapped in a data property
+    if (fetchedData && typeof fetchedData === 'object' && 'data' in fetchedData) {
+      const wrapped = fetchedData as { data: unknown };
+      return Array.isArray(wrapped.data) ? wrapped.data : [];
+    }
+    return [];
+  }, [fetchedData]);
+
   const filteredConsultations = useMemo(() => {
+    if (!Array.isArray(consultations)) {
+      console.error('consultations is not an array:', consultations);
+      return [];
+    }
     return consultations.filter((c) => {
       const matchCenter = !centerFilter || c.centerId === centerFilter;
       const matchTriage = !triageFilter || c.triageCategory === triageFilter;
@@ -521,7 +155,7 @@ export default function ConsultationsPage() {
       }
       return matchCenter && matchTriage && matchStatus && matchDate;
     });
-  }, [centerFilter, triageFilter, statusFilter, dateRange]);
+  }, [consultations, centerFilter, triageFilter, statusFilter, dateRange]);
 
   const handleRowClick = (record: ConsultationRecord) => {
     setSelectedConsultation(record);

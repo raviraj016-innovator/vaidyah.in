@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   App,
@@ -17,6 +17,8 @@ import {
   Descriptions,
   Empty,
   Divider,
+  Tooltip,
+  Alert,
 } from 'antd';
 import {
   AudioOutlined,
@@ -27,10 +29,19 @@ import {
   AlertOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  VideoCameraOutlined,
+  SoundOutlined,
+  QuestionCircleOutlined,
+  HeartOutlined,
+  WarningOutlined,
+  FileSearchOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, TranscriptEntry } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
+import api from '@/lib/api/client';
 
 // ---------------------------------------------------------------------------
 // Symptom taxonomy for manual entry
@@ -60,55 +71,160 @@ const SEVERITY_COLORS: Record<string, string> = {
   severe: 'red',
 };
 
+
 // ---------------------------------------------------------------------------
-// Mock transcript data
+// Voice Waveform Component (Canvas-based)
 // ---------------------------------------------------------------------------
 
-const MOCK_TRANSCRIPT: TranscriptEntry[] = [
-  {
-    id: 't-001',
-    speaker: 'nurse',
-    text: 'Hello, please tell me what brings you here today.',
-    textHi: 'नमस्ते, कृपया बताएं आज आप यहाँ क्यों आए हैं।',
-    timestamp: new Date(Date.now() - 300000).toISOString(),
-  },
-  {
-    id: 't-002',
-    speaker: 'patient',
-    text: 'I have been having a high fever for the last 3 days with body aches.',
-    textHi: 'मुझे पिछले 3 दिनों से तेज़ बुखार और शरीर में दर्द हो रहा है।',
-    timestamp: new Date(Date.now() - 280000).toISOString(),
-    emotions: { anxiety: 0.6, sadness: 0.3 },
-  },
-  {
-    id: 't-003',
-    speaker: 'nurse',
-    text: 'I see. Have you taken any medication for the fever?',
-    textHi: 'मैं समझी। क्या आपने बुखार के लिए कोई दवा ली है?',
-    timestamp: new Date(Date.now() - 260000).toISOString(),
-  },
-  {
-    id: 't-004',
-    speaker: 'patient',
-    text: 'Yes, I took paracetamol but the fever keeps coming back.',
-    textHi: 'हाँ, मैंने पैरासिटामोल ली लेकिन बुखार बार-बार आ रहा है।',
-    timestamp: new Date(Date.now() - 240000).toISOString(),
-    emotions: { anxiety: 0.7, frustration: 0.5 },
-  },
-  {
-    id: 't-005',
-    speaker: 'system',
-    text: 'Detected symptoms: Fever (severe, 3 days), Body Pain (moderate)',
-    textHi: 'पहचाने गए लक्षण: बुखार (गंभीर, 3 दिन), शरीर दर्द (मध्यम)',
-    timestamp: new Date(Date.now() - 230000).toISOString(),
-  },
-];
+function VoiceWaveform({
+  isActive,
+  isPaused: waveformPaused,
+  width = 280,
+  height = 60,
+}: {
+  isActive: boolean;
+  isPaused: boolean;
+  width?: number;
+  height?: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animFrameRef = useRef<number>(0);
+  const phaseRef = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const BAR_COUNT = 32;
+    const BAR_WIDTH = width / BAR_COUNT - 2;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      for (let i = 0; i < BAR_COUNT; i++) {
+        let barHeight: number;
+
+        if (!isActive) {
+          // Flat line when not recording
+          barHeight = 2;
+        } else if (waveformPaused) {
+          // Frozen sine wave when paused (use last phase, no increment)
+          barHeight =
+            Math.abs(Math.sin((i / BAR_COUNT) * Math.PI * 2 + phaseRef.current)) *
+              (height * 0.7) +
+            4;
+        } else {
+          // Animated sine wave when actively recording
+          barHeight =
+            Math.abs(
+              Math.sin((i / BAR_COUNT) * Math.PI * 2 + phaseRef.current) *
+                Math.sin((i / BAR_COUNT) * Math.PI * 1.5 + phaseRef.current * 0.7),
+            ) *
+              (height * 0.8) +
+            4;
+        }
+
+        const x = i * (BAR_WIDTH + 2);
+        const y = (height - barHeight) / 2;
+
+        ctx.fillStyle = isActive
+          ? waveformPaused
+            ? '#faad14' // orange when paused
+            : '#52c41a' // green when recording
+          : '#d9d9d9'; // gray when not recording
+        ctx.beginPath();
+        ctx.roundRect(x, y, BAR_WIDTH, barHeight, 2);
+        ctx.fill();
+      }
+
+      if (isActive && !waveformPaused) {
+        phaseRef.current += 0.08;
+      }
+
+      animFrameRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+    };
+  }, [isActive, waveformPaused, width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      style={{
+        display: 'block',
+        margin: '0 auto 12px auto',
+        borderRadius: 8,
+        background: '#fafafa',
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up question type (bilingual with category)
+// ---------------------------------------------------------------------------
+
+interface FollowUpQuestion {
+  text: string;
+  textHi: string;
+  category: string;
+}
+
+// ---------------------------------------------------------------------------
+// Contradiction detection types
+// ---------------------------------------------------------------------------
+
+interface Contradiction {
+  id: string;
+  description: string;
+  descriptionHi: string;
+  severity: 'high' | 'medium' | 'low';
+  suggestedAction: string;
+  suggestedActionHi: string;
+  dismissed: boolean;
+}
+
+
+const CONTRADICTION_COLORS: Record<string, string> = {
+  high: '#dc2626',
+  medium: '#f59e0b',
+  low: '#3b82f6',
+};
+
+
+// ---------------------------------------------------------------------------
+// ABDM Health Record types
+// ---------------------------------------------------------------------------
+
+interface ABDMHealthRecord {
+  medications: { name: string; dosage: string; frequency: string }[];
+  allergies: { substance: string; severity: string }[];
+  conditions: { name: string; diagnosedYear: number }[];
+  lastVisit: string;
+}
+
+
+const CATEGORY_LABELS: Record<string, { en: string; hi: string }> = {
+  symptom_exploration: { en: 'Symptom', hi: 'लक्षण' },
+  history: { en: 'History', hi: 'इतिहास' },
+  medical_history: { en: 'Medical', hi: 'चिकित्सा' },
+};
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function ConsultationPage() {
+function ConsultationPageInner() {
   const router = useRouter();
   const params = useParams();
   const sessionId = Array.isArray(params.sessionId) ? (params.sessionId[0] ?? '') : (params.sessionId ?? '');
@@ -128,22 +244,81 @@ export default function ConsultationPage() {
   const [isPaused, setIsPaused] = useState(false);
   const [triageLoading, setTriageLoading] = useState(false);
 
-  // Load mock transcript & symptoms on mount if store is empty
-  const initRef = useRef(false);
+  const currentTranscript = transcript;
+
+  // Session timer
+  const startedAt = useSessionStore((s) => s.startedAt);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
+    if (!startedAt) return;
+    const start = new Date(startedAt).getTime();
+    const tick = () => setElapsedSeconds(Math.floor((Date.now() - start) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [startedAt]);
 
-    if (transcript.length === 0) {
-      MOCK_TRANSCRIPT.forEach((entry) => addTranscriptEntry(entry));
-    }
-    if (symptoms.length === 0) {
-      addSymptom({ id: 'fever', name: 'Fever', severity: 'severe', duration: '3 days' });
-      addSymptom({ id: 'body_pain', name: 'Body Pain', severity: 'moderate' });
-    }
-  }, [transcript, symptoms, addTranscriptEntry, addSymptom]);
+  const formatDuration = (secs: number) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${m}:${String(s).padStart(2, '0')}`;
+  };
 
-  const currentTranscript = transcript.length > 0 ? transcript : MOCK_TRANSCRIPT;
+  // Contradiction detection state
+  const [contradictions, setContradictions] = useState<Contradiction[]>([]);
+  const [contradictionsLoading, setContradictionsLoading] = useState(false);
+
+  const handleDismissContradiction = useCallback((id: string) => {
+    setContradictions((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, dismissed: true } : c)),
+    );
+  }, []);
+
+  const handleFetchContradictions = useCallback(async () => {
+    setContradictionsLoading(true);
+    try {
+      const { data } = await api.post('/api/v1/nlu/contradictions', {
+        conversation_history: currentTranscript.map((e) => ({
+          role: e.speaker === 'nurse' ? 'doctor' : e.speaker,
+          text: e.text,
+        })),
+        extracted_symptoms: symptoms.map((s) => ({
+          name: s.name,
+          severity: s.severity ?? 'moderate',
+        })),
+      });
+      const raw = data?.contradictions ?? data?.data?.contradictions ?? [];
+      if (raw.length > 0) {
+        setContradictions(raw.map((c: any, i: number) => ({
+          id: c.id ?? `c-${i}`,
+          description: c.description ?? c.text ?? '',
+          descriptionHi: c.descriptionHi ?? c.description_hi ?? '',
+          severity: c.severity ?? 'medium',
+          suggestedAction: c.suggestedAction ?? c.suggested_action ?? '',
+          suggestedActionHi: c.suggestedActionHi ?? c.suggested_action_hi ?? '',
+          dismissed: false,
+        })));
+      }
+    } catch (err) {
+      console.error('Failed to fetch contradictions:', err);
+      message.error(
+        language === 'hi' ? 'विरोधाभास विश्लेषण विफल' : 'Failed to analyze contradictions',
+      );
+    }
+    setContradictionsLoading(false);
+  }, [currentTranscript, symptoms]);
+
+  // Bilingual follow-up questions (text/textHi/category)
+  const [suggestedQuestions, setSuggestedQuestions] = useState<FollowUpQuestion[]>([]);
+  const [suggestedLoading, setSuggestedLoading] = useState(false);
+
+  // ABDM Health Record
+  const [abdmData, setAbdmData] = useState<ABDMHealthRecord | null>(null);
+  const [abdmLoading, setAbdmLoading] = useState(false);
+
 
   const handleAddSymptom = useCallback(
     (value: string) => {
@@ -179,6 +354,104 @@ export default function ConsultationPage() {
   const handlePauseResume = () => {
     setIsPaused((prev) => !prev);
   };
+
+  // Fetch AI-suggested follow-up questions from NLU service
+  // Fetch bilingual suggested follow-up questions (text/textHi/category)
+  const handleFetchSuggestedQuestions = useCallback(async () => {
+    setSuggestedLoading(true);
+    try {
+      const { data } = await api.post('/api/v1/nlu/followup-questions', {
+        conversation_history: currentTranscript.map((e) => ({
+          role: e.speaker === 'nurse' ? 'doctor' : e.speaker,
+          text: e.text,
+          language: 'en',
+        })),
+        extracted_symptoms: symptoms.map((s) => ({
+          name: s.name,
+          original_text: s.name,
+          severity: s.severity ?? 'moderate',
+        })),
+        language: language === 'hi' ? 'hi' : 'en',
+        max_questions: 3,
+      });
+      // Map API response to bilingual FollowUpQuestion shape
+      const raw = data?.questions ?? data?.data?.questions ?? [];
+      const mapped: FollowUpQuestion[] = raw.map((q: any) => ({
+        text: q.question_en ?? q.text ?? '',
+        textHi: q.question_local ?? q.textHi ?? '',
+        category: q.category ?? q.purpose ?? 'general',
+      }));
+      setSuggestedQuestions(mapped);
+    } catch (err) {
+      console.error('Failed to fetch suggested questions:', err);
+      message.error(
+        language === 'hi' ? 'सुझाए गए प्रश्न प्राप्त करने में विफल' : 'Failed to fetch suggested questions',
+      );
+    }
+    setSuggestedLoading(false);
+  }, [currentTranscript, symptoms, language]);
+
+  // Handle clicking a suggested question — add it to transcript as nurse entry
+  const handleSuggestedQuestionClick = useCallback(
+    (question: FollowUpQuestion) => {
+      addTranscriptEntry({
+        id: `fq-${Date.now()}`,
+        speaker: 'nurse',
+        text: question.text,
+        textHi: question.textHi,
+        timestamp: new Date().toISOString(),
+      });
+      message.success(
+        language === 'hi'
+          ? 'प्रश्न ट्रांसक्रिप्ट में जोड़ा गया'
+          : 'Question added to transcript',
+      );
+    },
+    [addTranscriptEntry, language, message],
+  );
+
+  // Fetch ABDM health record
+  const handleFetchABDM = useCallback(async () => {
+    if (!patient?.abdmId && !patient?.id) return;
+    setAbdmLoading(true);
+    try {
+      const { data } = await api.get(`/api/v1/integration/abdm/health-record/${patient.abdmId ?? patient.id}`);
+      setAbdmData(data?.record ?? data);
+    } catch (err) {
+      console.error('Failed to fetch ABDM health record:', err);
+      message.error(
+        language === 'hi' ? 'ABDM रिकॉर्ड प्राप्त करने में विफल' : 'Failed to fetch ABDM health record',
+      );
+    }
+    setAbdmLoading(false);
+  }, [patient]);
+
+  // Auto-fetch ABDM data on mount
+  const abdmFetchedRef = useRef(false);
+  useEffect(() => {
+    if (patient && !abdmData && !abdmFetchedRef.current) {
+      abdmFetchedRef.current = true;
+      handleFetchABDM();
+    }
+  }, [patient, abdmData, handleFetchABDM]);
+
+  // Aggregate prosody scores from transcript emotions
+  const prosodyScores = useMemo(() => {
+    const emotionEntries = currentTranscript.filter((e) => e.emotions);
+    if (emotionEntries.length === 0) return null;
+    const aggregated: Record<string, number[]> = {};
+    for (const entry of emotionEntries) {
+      for (const [emotion, score] of Object.entries(entry.emotions!)) {
+        if (!aggregated[emotion]) aggregated[emotion] = [];
+        aggregated[emotion]!.push(score);
+      }
+    }
+    const averaged: Record<string, number> = {};
+    for (const [emotion, scores] of Object.entries(aggregated)) {
+      averaged[emotion] = scores.reduce((a, b) => a + b, 0) / scores.length;
+    }
+    return averaged;
+  }, [currentTranscript]);
 
   const handleRequestTriage = () => {
     setTriageLoading(true);
@@ -221,22 +494,33 @@ export default function ConsultationPage() {
         title={language === 'hi' ? 'परामर्श' : 'Consultation'}
         subtitle={`${patient.name} | ${language === 'hi' ? 'सत्र' : 'Session'}: ${sessionId}`}
         extra={
-          <Tag
-            color={isRecording ? (isPaused ? 'orange' : 'red') : 'default'}
-            style={{ fontSize: 13, padding: '4px 12px' }}
-          >
-            {isRecording
-              ? isPaused
-                ? language === 'hi'
-                  ? 'रुका हुआ'
-                  : 'Paused'
+          <Space size="middle">
+            {startedAt && (
+              <Tag
+                icon={<ClockCircleOutlined />}
+                color="processing"
+                style={{ fontSize: 13, padding: '4px 12px' }}
+              >
+                {formatDuration(elapsedSeconds)}
+              </Tag>
+            )}
+            <Tag
+              color={isRecording ? (isPaused ? 'orange' : 'red') : 'default'}
+              style={{ fontSize: 13, padding: '4px 12px' }}
+            >
+              {isRecording
+                ? isPaused
+                  ? language === 'hi'
+                    ? 'रुका हुआ'
+                    : 'Paused'
+                  : language === 'hi'
+                    ? 'रिकॉर्डिंग चल रही है'
+                    : 'Recording'
                 : language === 'hi'
-                  ? 'रिकॉर्डिंग चल रही है'
-                  : 'Recording'
-              : language === 'hi'
-                ? 'रिकॉर्डिंग बंद'
-                : 'Not Recording'}
-          </Tag>
+                  ? 'रिकॉर्डिंग बंद'
+                  : 'Not Recording'}
+            </Tag>
+          </Space>
         }
       />
 
@@ -352,6 +636,118 @@ export default function ConsultationPage() {
               />
             </Space>
           </Card>
+
+          {/* ABDM Health Record */}
+          <Card
+            title={
+              <Space>
+                <FileSearchOutlined />
+                {language === 'hi' ? 'ABDM स्वास्थ्य रिकॉर्ड' : 'ABDM Health Record'}
+              </Space>
+            }
+            style={{ marginBottom: 16 }}
+            loading={abdmLoading}
+            extra={
+              <Button size="small" onClick={handleFetchABDM} loading={abdmLoading}>
+                {language === 'hi' ? 'रिफ्रेश' : 'Refresh'}
+              </Button>
+            }
+          >
+            {!abdmData ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  language === 'hi'
+                    ? 'ABDM रिकॉर्ड लोड हो रहा है...'
+                    : 'Loading ABDM record...'
+                }
+              />
+            ) : (
+              <>
+                {/* Medications */}
+                <div style={{ marginBottom: 12 }}>
+                  <Typography.Text strong style={{ fontSize: 13 }}>
+                    <MedicineBoxOutlined style={{ marginRight: 6 }} />
+                    {language === 'hi' ? 'दवाइयाँ' : 'Medications'}
+                  </Typography.Text>
+                  <div style={{ marginTop: 8 }}>
+                    {abdmData.medications.map((med) => (
+                      <Tooltip
+                        key={med.name}
+                        title={`${med.dosage} — ${med.frequency}`}
+                      >
+                        <Tag
+                          color="blue"
+                          style={{ marginBottom: 4, cursor: 'pointer' }}
+                        >
+                          {med.name} ({med.dosage})
+                        </Tag>
+                      </Tooltip>
+                    ))}
+                  </div>
+                </div>
+
+                <Divider style={{ margin: '8px 0' }} />
+
+                {/* Allergies */}
+                <div style={{ marginBottom: 12 }}>
+                  <Typography.Text strong style={{ fontSize: 13 }}>
+                    <WarningOutlined style={{ marginRight: 6, color: '#faad14' }} />
+                    {language === 'hi' ? 'एलर्जी' : 'Allergies'}
+                  </Typography.Text>
+                  <div style={{ marginTop: 8 }}>
+                    {abdmData.allergies.map((allergy) => (
+                      <Tag
+                        key={allergy.substance}
+                        color="warning"
+                        style={{ marginBottom: 4 }}
+                      >
+                        {allergy.substance} ({allergy.severity})
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+
+                <Divider style={{ margin: '8px 0' }} />
+
+                {/* Conditions */}
+                <div style={{ marginBottom: 12 }}>
+                  <Typography.Text strong style={{ fontSize: 13 }}>
+                    <HeartOutlined style={{ marginRight: 6, color: '#ff4d4f' }} />
+                    {language === 'hi' ? 'स्थितियाँ' : 'Conditions'}
+                  </Typography.Text>
+                  <List
+                    size="small"
+                    dataSource={abdmData.conditions}
+                    renderItem={(condition) => (
+                      <List.Item style={{ padding: '4px 0', border: 'none' }}>
+                        <Typography.Text style={{ fontSize: 12 }}>
+                          {condition.name}
+                        </Typography.Text>
+                        <Tag style={{ fontSize: 10, marginLeft: 8 }}>
+                          {language === 'hi' ? 'निदान' : 'Since'} {condition.diagnosedYear}
+                        </Tag>
+                      </List.Item>
+                    )}
+                  />
+                </div>
+
+                <Divider style={{ margin: '8px 0' }} />
+
+                {/* Last Visit */}
+                <div>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    <ClockCircleOutlined style={{ marginRight: 4 }} />
+                    {language === 'hi' ? 'अंतिम विज़िट' : 'Last Visit'}:{' '}
+                    {new Date(abdmData.lastVisit).toLocaleDateString(
+                      language === 'hi' ? 'hi-IN' : 'en-IN',
+                      { year: 'numeric', month: 'long', day: 'numeric' },
+                    )}
+                  </Typography.Text>
+                </div>
+              </>
+            )}
+          </Card>
         </Col>
 
         {/* Right Panel (40%) */}
@@ -379,7 +775,9 @@ export default function ConsultationPage() {
                     ? 'blue'
                     : entry.speaker === 'patient'
                       ? 'green'
-                      : 'gray',
+                      : entry.speaker === 'companion'
+                        ? 'orange'
+                        : 'gray',
                 dot:
                   entry.speaker === 'system' ? (
                     <ClockCircleOutlined style={{ fontSize: 14 }} />
@@ -393,7 +791,9 @@ export default function ConsultationPage() {
                             ? 'blue'
                             : entry.speaker === 'patient'
                               ? 'green'
-                              : 'default'
+                              : entry.speaker === 'companion'
+                                ? 'orange'
+                                : 'default'
                         }
                         style={{ fontSize: 11 }}
                       >
@@ -405,9 +805,13 @@ export default function ConsultationPage() {
                             ? language === 'hi'
                               ? 'रोगी'
                               : 'Patient'
-                            : language === 'hi'
-                              ? 'सिस्टम'
-                              : 'System'}
+                            : entry.speaker === 'companion'
+                              ? language === 'hi'
+                                ? 'साथी'
+                                : 'Companion'
+                              : language === 'hi'
+                                ? 'सिस्टम'
+                                : 'System'}
                       </Tag>
                       <Typography.Text type="secondary" style={{ fontSize: 10 }}>
                         {new Date(entry.timestamp).toLocaleTimeString(
@@ -447,12 +851,218 @@ export default function ConsultationPage() {
             />
           </Card>
 
+          {/* Suggested Questions (bilingual, clickable) */}
+          <Card
+            title={
+              <Space>
+                <QuestionCircleOutlined />
+                {language === 'hi' ? 'सुझाए गए प्रश्न' : 'Suggested Questions'}
+              </Space>
+            }
+            extra={
+              <Button
+                size="small"
+                type="primary"
+                loading={suggestedLoading}
+                onClick={handleFetchSuggestedQuestions}
+              >
+                {suggestedQuestions.length > 0
+                  ? (language === 'hi' ? 'नवीनीकरण' : 'Refresh')
+                  : (language === 'hi' ? 'प्रश्न प्राप्त करें' : 'Get Questions')}
+              </Button>
+            }
+            size="small"
+            style={{ marginBottom: 16 }}
+          >
+            {suggestedQuestions.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  language === 'hi'
+                    ? 'AI सुझावित प्रश्न प्राप्त करने के लिए बटन दबाएं'
+                    : 'Press button to get AI-suggested follow-up questions'
+                }
+              />
+            ) : (
+              <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                {suggestedQuestions.map((q, idx) => (
+                  <Button
+                    key={idx}
+                    type="default"
+                    block
+                    style={{
+                      height: 'auto',
+                      whiteSpace: 'normal',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                    }}
+                    onClick={() => handleSuggestedQuestionClick(q)}
+                  >
+                    <div>
+                      <Tag
+                        color="cyan"
+                        style={{ fontSize: 10, marginBottom: 4 }}
+                      >
+                        {CATEGORY_LABELS[q.category]
+                          ? language === 'hi'
+                            ? CATEGORY_LABELS[q.category].hi
+                            : CATEGORY_LABELS[q.category].en
+                          : q.category}
+                      </Tag>
+                      <div style={{ fontSize: 13 }}>
+                        {language === 'hi' && q.textHi ? q.textHi : q.text}
+                      </div>
+                      {language !== 'hi' && q.textHi && (
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 11, display: 'block', marginTop: 2 }}
+                        >
+                          {q.textHi}
+                        </Typography.Text>
+                      )}
+                      {language === 'hi' && (
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 11, display: 'block', marginTop: 2 }}
+                        >
+                          {q.text}
+                        </Typography.Text>
+                      )}
+                    </div>
+                  </Button>
+                ))}
+              </Space>
+            )}
+          </Card>
+
+          {/* Prosody / Emotion Indicator */}
+          {prosodyScores && Object.keys(prosodyScores).length > 0 && (
+            <Card
+              title={
+                <Space>
+                  <SoundOutlined />
+                  {language === 'hi' ? 'भावना विश्लेषण (प्रोसोडी)' : 'Emotion Analysis (Prosody)'}
+                </Space>
+              }
+              size="small"
+              style={{ marginBottom: 16 }}
+            >
+              {Object.entries(prosodyScores)
+                .sort(([, a], [, b]) => b - a)
+                .map(([emotion, score]) => (
+                  <div key={emotion} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Typography.Text style={{ fontSize: 12, textTransform: 'capitalize' }}>{emotion}</Typography.Text>
+                      <Tag
+                        color={score > 0.6 ? 'red' : score > 0.35 ? 'orange' : 'green'}
+                        style={{ fontSize: 10 }}
+                      >
+                        {Math.round(score * 100)}%
+                      </Tag>
+                    </div>
+                    <div style={{ height: 5, borderRadius: 3, background: '#f0f0f0', overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${Math.min(score * 100, 100)}%`,
+                        height: '100%',
+                        borderRadius: 3,
+                        background: score > 0.6 ? '#ff4d4f' : score > 0.35 ? '#faad14' : '#52c41a',
+                        transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                  </div>
+                ))}
+              <Typography.Text type="secondary" style={{ fontSize: 10 }}>
+                {language === 'hi'
+                  ? 'आवाज विश्लेषण से संचित भावनात्मक संकेत'
+                  : 'Aggregated emotional signals from voice analysis'}
+              </Typography.Text>
+            </Card>
+          )}
+
+          {/* Contradiction Detection */}
+          <Card
+            title={
+              <Space>
+                <ExclamationCircleOutlined style={{ color: '#f59e0b' }} />
+                {language === 'hi' ? 'विरोधाभास पहचान' : 'Contradiction Detection'}
+              </Space>
+            }
+            extra={
+              <Button
+                size="small"
+                loading={contradictionsLoading}
+                onClick={handleFetchContradictions}
+              >
+                {contradictions.length > 0
+                  ? (language === 'hi' ? 'नवीनीकरण' : 'Refresh')
+                  : (language === 'hi' ? 'विश्लेषण करें' : 'Analyze')}
+              </Button>
+            }
+            size="small"
+            style={{ marginBottom: 16 }}
+          >
+            {contradictions.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  language === 'hi'
+                    ? 'विरोधाभास पहचानने के लिए "विश्लेषण करें" दबाएं'
+                    : 'Press "Analyze" to detect contradictions in conversation'
+                }
+              />
+            ) : (
+              <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                {contradictions
+                  .filter((c) => !c.dismissed)
+                  .map((c) => (
+                    <Alert
+                      key={c.id}
+                      type={c.severity === 'high' ? 'error' : c.severity === 'medium' ? 'warning' : 'info'}
+                      showIcon
+                      closable
+                      onClose={() => handleDismissContradiction(c.id)}
+                      message={
+                        <Space>
+                          <Tag color={CONTRADICTION_COLORS[c.severity]} style={{ fontSize: 10 }}>
+                            {c.severity.toUpperCase()}
+                          </Tag>
+                          <Typography.Text style={{ fontSize: 12 }}>
+                            {language === 'hi' && c.descriptionHi ? c.descriptionHi : c.description}
+                          </Typography.Text>
+                        </Space>
+                      }
+                      description={
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          {language === 'hi'
+                            ? `सुझाव: ${c.suggestedActionHi || c.suggestedAction}`
+                            : `Suggestion: ${c.suggestedAction}`}
+                        </Typography.Text>
+                      }
+                      style={{ borderRadius: 6 }}
+                    />
+                  ))}
+                {contradictions.filter((c) => c.dismissed).length > 0 && (
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    {contradictions.filter((c) => c.dismissed).length}{' '}
+                    {language === 'hi' ? 'विरोधाभास खारिज किए गए' : 'contradiction(s) dismissed'}
+                  </Typography.Text>
+                )}
+              </Space>
+            )}
+          </Card>
+
           {/* Recording Controls */}
           <Card
             title={
               language === 'hi' ? 'रिकॉर्डिंग नियंत्रण' : 'Recording Controls'
             }
           >
+            {/* Voice Waveform Visualization */}
+            <VoiceWaveform
+              isActive={isRecording}
+              isPaused={isPaused}
+            />
+
             <Space size="middle" wrap style={{ width: '100%', justifyContent: 'center' }}>
               {!isRecording ? (
                 <Button
@@ -518,6 +1128,13 @@ export default function ConsultationPage() {
           </Button>
           <Space size="middle" wrap>
             <Button
+              size="large"
+              icon={<VideoCameraOutlined />}
+              onClick={() => router.push(`/nurse/telemedicine/${sessionId}`)}
+            >
+              {language === 'hi' ? 'वीडियो कॉल' : 'Video Call'}
+            </Button>
+            <Button
               type="primary"
               size="large"
               loading={triageLoading}
@@ -553,5 +1170,17 @@ export default function ConsultationPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+// Wrap in ErrorBoundary
+export default function ConsultationPage() {
+  return (
+    <ErrorBoundary
+      fallbackTitle="Consultation Error"
+      fallbackMessage="An error occurred during the consultation. Your session data is preserved. Please retry."
+    >
+      <ConsultationPageInner />
+    </ErrorBoundary>
   );
 }

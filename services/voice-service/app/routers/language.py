@@ -1,7 +1,8 @@
 """
-Language detection router.
+Language detection and dialect classification router.
 
-POST /detect-language - Auto-detect language from audio and/or text input.
+POST /detect-language  - Auto-detect language from audio and/or text input.
+POST /detect-dialect   - Classify regional dialect within a detected language.
 """
 
 from __future__ import annotations
@@ -23,7 +24,13 @@ from fastapi import (
 )
 
 from app.config import Settings, get_settings
-from app.models import ErrorResponse, LanguageDetectionResult
+from app.models import (
+    DialectDetectionRequest,
+    DialectDetectionResponse,
+    ErrorResponse,
+    LanguageDetectionResult,
+)
+from app.services.dialect_classifier import DialectClassifier
 from app.services.language_detector import LanguageDetectorService
 from app.utils.audio import AudioUtils
 
@@ -34,6 +41,11 @@ router = APIRouter()
 @lru_cache(maxsize=1)
 def _get_language_detector() -> LanguageDetectorService:
     return LanguageDetectorService(get_settings())
+
+
+@lru_cache(maxsize=1)
+def _get_dialect_classifier() -> DialectClassifier:
+    return DialectClassifier(get_settings())
 
 
 # ---------------------------------------------------------------------------
@@ -128,3 +140,81 @@ async def detect_language(
         )
     result.request_id = request_id
     return result
+
+
+# ---------------------------------------------------------------------------
+# POST /detect-dialect
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/detect-dialect",
+    response_model=DialectDetectionResponse,
+    responses={400: {"model": ErrorResponse}},
+    summary="Detect regional dialect within a language",
+    description=(
+        "Classify the regional dialect or language variant from text input. "
+        "Supports dialect identification for Hindi (Bhojpuri, Braj, Awadhi, "
+        "Bundeli, Chhattisgarhi, Marwari, Rajasthani, Maithili, Angika, "
+        "Bajjika), Bengali (Sylheti, Chittagonian, Rangpuri), Tamil "
+        "(Madurai, Kongu, Nellai), Telugu (Telangana, Rayalaseema, Coastal "
+        "Andhra), Marathi (Varhadi, Konkani Marathi, Deccani), Gujarati "
+        "(Kathiawadi, Surti, Charotari), Kannada (Dharwad, Mangalore, "
+        "Havyaka), and Malayalam (Malabar, Travancore). If base_language "
+        "is not provided, the service will auto-detect it first."
+    ),
+)
+async def detect_dialect(
+    body: DialectDetectionRequest,
+    lang_detector: LanguageDetectorService = Depends(_get_language_detector),
+    dialect_classifier: DialectClassifier = Depends(_get_dialect_classifier),
+) -> DialectDetectionResponse:
+    """Identify the regional dialect of the provided text.
+
+    When ``base_language`` is omitted, the endpoint first runs language
+    detection to determine the parent language before classifying the
+    dialect.
+    """
+    request_id = uuid.uuid4()
+    log = logger.bind(request_id=str(request_id))
+
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="text must not be empty.",
+        )
+
+    # --- Determine base language ---
+    base_language = body.base_language
+    if not base_language:
+        log.info("dialect.auto_detecting_base_language")
+        lang_result = await lang_detector.detect_from_text(text)
+        base_language = lang_result.primary_language.value
+        log.info(
+            "dialect.base_language_detected",
+            base_language=base_language,
+            confidence=lang_result.confidence,
+        )
+
+    # --- Classify dialect ---
+    dialect_info = dialect_classifier.classify_dialect(
+        text=text,
+        base_language=base_language,
+        audio_features=body.audio_features,
+    )
+
+    log.info(
+        "dialect.classified",
+        base_language=dialect_info.base_language,
+        dialect=dialect_info.dialect_name,
+        confidence=dialect_info.confidence,
+    )
+
+    return DialectDetectionResponse(
+        request_id=request_id,
+        base_language=dialect_info.base_language,
+        dialect_name=dialect_info.dialect_name,
+        region=dialect_info.region,
+        confidence=dialect_info.confidence,
+        linguistic_features=dialect_info.linguistic_features,
+    )

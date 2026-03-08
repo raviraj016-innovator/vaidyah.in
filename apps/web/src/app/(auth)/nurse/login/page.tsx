@@ -26,13 +26,6 @@ interface HealthCenter {
   state: string;
 }
 
-const MOCK_CENTERS: HealthCenter[] = [
-  { id: 'hc-001', name: 'PHC Raipur', district: 'Raipur', state: 'Chhattisgarh' },
-  { id: 'hc-002', name: 'CHC Bilaspur', district: 'Bilaspur', state: 'Chhattisgarh' },
-  { id: 'hc-003', name: 'PHC Durg', district: 'Durg', state: 'Chhattisgarh' },
-  { id: 'hc-004', name: 'Sub-Center Korba', district: 'Korba', state: 'Chhattisgarh' },
-  { id: 'hc-005', name: 'PHC Rajnandgaon', district: 'Rajnandgaon', state: 'Chhattisgarh' },
-];
 
 export default function NurseLoginPage() {
   const [form] = Form.useForm();
@@ -41,16 +34,38 @@ export default function NurseLoginPage() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const mfaRequired = useAuthStore((s) => s.mfaRequired);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const portalType = useAuthStore((s) => s.portalType);
   const { t } = useTranslation();
-  const [centers, setCenters] = useState<HealthCenter[]>(MOCK_CENTERS);
+  const [centers, setCenters] = useState<HealthCenter[]>([]);
+  const [centersFetched, setCentersFetched] = useState(false);
   const setError = useAuthStore((s) => s.setError);
 
+  // Redirect authenticated nurse users to dashboard
   useEffect(() => {
+    if (isAuthenticated && portalType === 'nurse' && !mfaRequired) {
+      window.location.href = '/nurse/dashboard';
+    }
+  }, [isAuthenticated, portalType, mfaRequired]);
+
+  useEffect(() => {
+    if (centersFetched) return;
+    
     api
       .get(endpoints.centers?.list ?? '/api/centers')
-      .then((res) => { if (res.data?.data?.length) setCenters(res.data.data); })
-      .catch(() => {});
-  }, []);
+      .then((res) => { 
+        if (res.data?.data?.length) setCenters(res.data.data);
+        setCentersFetched(true);
+      })
+      .catch((err) => { 
+        console.error('Failed to fetch health centers:', err);
+        setCentersFetched(true);
+        // If 401, clear any stale auth state to prevent redirect loop
+        if (err.response?.status === 401) {
+          useAuthStore.getState().logout();
+        }
+      });
+  }, [centersFetched]);
 
   const handleLogin = async (values: { identifier: string; password: string; centerId: string }) => {
     setError(null);

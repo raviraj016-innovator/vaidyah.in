@@ -1,5 +1,5 @@
 ###############################################################################
-# Vaidyah Healthcare Platform - Root Variables
+# Vaidyah Healthcare Platform - Budget Deployment Variables
 ###############################################################################
 
 variable "project_name" {
@@ -49,50 +49,32 @@ variable "availability_zones" {
   default     = ["ap-south-1a", "ap-south-1b"]
 }
 
-# ── EKS ──────────────────────────────────────────────────────────────────────
+# ── EC2 ──────────────────────────────────────────────────────────────────────
 
-variable "eks_cluster_version" {
-  description = "Kubernetes version for EKS cluster"
+variable "ec2_instance_type" {
+  description = "EC2 instance type for the application server"
   type        = string
-  default     = "1.29"
+  default     = "t3.small"
 }
 
-variable "eks_node_instance_types" {
-  description = "Instance types for EKS managed node group"
+variable "ec2_key_pair_name" {
+  description = "Name of the EC2 key pair for SSH access"
+  type        = string
+  default     = ""
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "CIDR blocks allowed to SSH into the EC2 instance"
   type        = list(string)
-  default     = ["t3.medium"]
-}
-
-variable "eks_node_desired_size" {
-  description = "Desired number of worker nodes"
-  type        = number
-  default     = 2
-}
-
-variable "eks_node_min_size" {
-  description = "Minimum number of worker nodes"
-  type        = number
-  default     = 1
-}
-
-variable "eks_node_max_size" {
-  description = "Maximum number of worker nodes"
-  type        = number
-  default     = 5
-}
-
-variable "eks_node_disk_size" {
-  description = "EBS volume size in GB for worker nodes"
-  type        = number
-  default     = 50
+  default     = []
 }
 
 # ── RDS ──────────────────────────────────────────────────────────────────────
 
 variable "rds_instance_class" {
-  description = "RDS instance class"
+  description = "RDS instance class (budget: db.t3.micro)"
   type        = string
-  default     = "db.t3.medium"
+  default     = "db.t3.micro"
 }
 
 variable "rds_allocated_storage" {
@@ -104,19 +86,13 @@ variable "rds_allocated_storage" {
 variable "rds_max_allocated_storage" {
   description = "Maximum storage autoscaling limit in GB"
   type        = number
-  default     = 100
-}
-
-variable "rds_multi_az" {
-  description = "Enable Multi-AZ for RDS"
-  type        = bool
-  default     = false
+  default     = 50
 }
 
 variable "rds_backup_retention_period" {
   description = "Number of days to retain automated RDS backups"
   type        = number
-  default     = 7
+  default     = 3
 }
 
 variable "rds_database_name" {
@@ -132,59 +108,12 @@ variable "rds_master_username" {
   sensitive   = true
 }
 
-# ── OpenSearch ───────────────────────────────────────────────────────────────
+# ── S3 / CORS ───────────────────────────────────────────────────────────────
 
-variable "opensearch_instance_type" {
-  description = "Instance type for OpenSearch domain"
-  type        = string
-  default     = "t3.medium.search"
-}
-
-variable "opensearch_instance_count" {
-  description = "Number of OpenSearch data nodes"
-  type        = number
-  default     = 2
-}
-
-variable "opensearch_volume_size" {
-  description = "EBS volume size in GB for OpenSearch"
-  type        = number
-  default     = 20
-}
-
-variable "opensearch_engine_version" {
-  description = "OpenSearch engine version"
-  type        = string
-  default     = "OpenSearch_2.11"
-}
-
-# ── ElastiCache (Redis) ──────────────────────────────────────────────────────
-
-variable "redis_auth_token" {
-  description = "Auth token for Redis (must be 16-128 chars, transit encryption required)"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-# ── API Gateway ──────────────────────────────────────────────────────────────
-
-variable "api_gateway_stage_names" {
-  description = "API Gateway stage names"
+variable "cors_allowed_origins" {
+  description = "CORS allowed origins for S3 buckets"
   type        = list(string)
-  default     = ["dev", "staging", "prod"]
-}
-
-variable "domain_name" {
-  description = "Custom domain name for API Gateway"
-  type        = string
-  default     = ""
-}
-
-variable "certificate_arn" {
-  description = "ACM certificate ARN for custom domain TLS"
-  type        = string
-  default     = ""
+  default     = ["http://localhost:3000"]
 }
 
 # ── Tags ─────────────────────────────────────────────────────────────────────

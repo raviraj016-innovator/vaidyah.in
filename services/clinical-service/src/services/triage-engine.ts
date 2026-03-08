@@ -34,6 +34,54 @@ function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// ─── Negation Detection ─────────────────────────────────────────────────────
+// Detects whether a symptom keyword appears in a negated context within the
+// symptom text.  This prevents phrases like "no chest pain" or
+// "denies shortness of breath" from triggering red-flag matches.
+
+const NEGATION_PREFIXES: string[] = [
+  'no',
+  'not',
+  'denies',
+  'denied',
+  'without',
+  'absence of',
+  'negative for',
+  'rules out',
+  // Hindi negation markers
+  'नहीं',
+  'बिना',
+  'अनुपस्थिति',
+];
+
+/**
+ * Check if a symptom keyword appears in a negated context within the given
+ * text.  Returns `true` when the keyword is immediately preceded (possibly
+ * with whitespace) by a known negation phrase.
+ *
+ * @param symptomKeyword  The red-flag keyword to look for (e.g. "chest pain")
+ * @param text            The full symptom name / text to search in
+ */
+function isNegated(symptomKeyword: string, text: string): boolean {
+  const lowerText = text.toLowerCase();
+  const lowerKeyword = symptomKeyword.toLowerCase();
+
+  // If the keyword is not even present in the text, nothing to negate.
+  if (!lowerText.includes(lowerKeyword)) {
+    return false;
+  }
+
+  // Build a regex that matches any negation prefix followed by optional
+  // whitespace and then the symptom keyword (word-bounded).
+  const negationGroup = NEGATION_PREFIXES.map(escapeRegExp).join('|');
+  const negationRegex = new RegExp(
+    `(?:${negationGroup})\\s+${escapeRegExp(lowerKeyword)}\\b`,
+    'i'
+  );
+
+  return negationRegex.test(lowerText);
+}
+
 // ─── Red Flag Combination Patterns ──────────────────────────────────────────
 // Each pattern: if all required symptoms/signs present, escalate immediately.
 
@@ -699,7 +747,9 @@ export class TriageEngine {
       const allSymptomsPresent = pattern.required_symptoms.every((req) => {
         const reqLower = req.toLowerCase();
         const reqRegex = new RegExp(`\\b${escapeRegExp(reqLower)}\\b`);
-        return symptomNames.some((s) => s === reqLower || reqRegex.test(s));
+        return symptomNames.some(
+          (s) => (s === reqLower || reqRegex.test(s)) && !isNegated(reqLower, s)
+        );
       });
 
       if (!allSymptomsPresent) continue;
@@ -749,7 +799,7 @@ export class TriageEngine {
 
       for (const [flagName, flagInfo] of Object.entries(INDIVIDUAL_RED_FLAGS)) {
         const flagRegex = new RegExp(`\\b${escapeRegExp(flagName)}\\b`);
-        if (normalizedName === flagName || flagRegex.test(normalizedName)) {
+        if ((normalizedName === flagName || flagRegex.test(normalizedName)) && !isNegated(flagName, normalizedName)) {
           // Avoid duplicates
           const alreadyFlagged = redFlags.some(
             (rf) => rf.flag.toLowerCase().includes(flagName)

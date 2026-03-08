@@ -3,6 +3,10 @@ AWS Transcribe Medical integration.
 
 Provides both batch (file-upload) and real-time streaming transcription
 with medical vocabulary boosting and custom vocabulary support.
+
+Streaming transcription uses the Amazon Transcribe Streaming SDK
+(amazon-transcribe-streaming-sdk) when available, falling back to
+batch-per-chunk processing otherwise.
 """
 
 from __future__ import annotations
@@ -23,6 +27,21 @@ from app.config import Settings
 
 logger = structlog.get_logger("voice.services.transcribe")
 
+# Try to import the Amazon Transcribe Streaming SDK
+_HAS_STREAMING_SDK = False
+try:
+    from amazon_transcribe.client import TranscribeStreamingClient
+    from amazon_transcribe.handlers import TranscriptResultStreamHandler
+    from amazon_transcribe.model import TranscriptEvent, TranscriptResultStream
+    _HAS_STREAMING_SDK = True
+    logger.info("transcribe.streaming_sdk_available")
+except ImportError:
+    logger.info(
+        "transcribe.streaming_sdk_unavailable",
+        detail="amazon-transcribe-streaming-sdk not installed; "
+               "streaming will fall back to batch-per-chunk mode",
+    )
+
 # Medical terms to boost recognition (common Indian healthcare terms)
 MEDICAL_VOCABULARY_BOOST: list[str] = [
     "paracetamol", "metformin", "amlodipine", "atorvastatin",
@@ -42,6 +61,113 @@ MEDICAL_VOCABULARY_BOOST: list[str] = [
 ]
 
 
+class _StreamingResultCollector:
+    """
+    Collects partial and final transcript results from the AWS Transcribe
+    Streaming SDK event stream.
+
+    Used only when the streaming SDK is available.
+    """
+
+    def __init__(self) -> None:
+        self.partial_transcript: str = ""
+        self.final_transcript: str = ""
+        self.final_segments: list[dict] = []
+        self.confidence_sum: float = 0.0
+        self.confidence_count: int = 0
+        self._pending_results: list[dict[str, Any]] = []
+
+    def drain_results(self) -> list[dict[str, Any]]:
+        """Return and clear any pending results."""
+        results = list(self._pending_results)
+        self._pending_results.clear()
+        return results
+
+    def handle_transcript_event(self, event: dict[str, Any]) -> None:
+        """
+        Handle a transcript event from the streaming response.
+
+        Each event may contain one or more results, each of which is either
+        partial (is_partial=True) or final.
+        """
+        results = event.get("Transcript", {}).get("Results", [])
+        for result in results:
+            is_partial = result.get("IsPartial", True)
+            alternatives = result.get("Alternatives", [])
+            if not alternatives:
+                continue
+
+            best = alternatives[0]
+            transcript_text = best.get("Transcript", "")
+            items = best.get("Items", [])
+
+            # Compute confidence from items
+            seg_confidences: list[float] = []
+            for item in items:
+                if item.get("Type") == "pronunciation":
+                    conf = float(item.get("Confidence", 0.0))
+                    seg_confidences.append(conf)
+
+            avg_confidence = (
+                sum(seg_confidences) / len(seg_confidences)
+                if seg_confidences
+                else 0.0
+            )
+
+            if is_partial:
+                self.partial_transcript = transcript_text
+                self._pending_results.append(
+                    {
+                        "transcript": transcript_text,
+                        "is_partial": True,
+                        "confidence": avg_confidence,
+                        "medical_terms": [],
+                    }
+                )
+            else:
+                self.partial_transcript = ""
+                self.final_transcript += (" " + transcript_text).lstrip()
+                self.confidence_sum += avg_confidence
+                self.confidence_count += 1
+
+                # Detect medical terms in the final segment
+                lower_text = transcript_text.lower()
+                medical_terms = [
+                    term
+                    for term in MEDICAL_VOCABULARY_BOOST
+                    if term.lower() in lower_text
+                ]
+
+                # Build segment entries
+                for item in items:
+                    if item.get("Type") == "pronunciation":
+                        alts = [item] if "Confidence" in item else []
+                        self.final_segments.append(
+                            {
+                                "text": item.get("Content", ""),
+                                "start_time": float(
+                                    item.get("StartTime", 0.0)
+                                ),
+                                "end_time": float(
+                                    item.get("EndTime", 0.0)
+                                ),
+                                "confidence": float(
+                                    item.get("Confidence", 0.0)
+                                ),
+                                "is_partial": False,
+                            }
+                        )
+
+                self._pending_results.append(
+                    {
+                        "transcript": transcript_text,
+                        "is_partial": False,
+                        "confidence": avg_confidence,
+                        "medical_terms": medical_terms,
+                    }
+                )
+
+
 class StreamSession:
     """Holds state for an active streaming transcription session."""
 
@@ -56,6 +182,16 @@ class StreamSession:
         self.final_segments: list[dict] = []
         self.is_active: bool = True
         self.created_at: float = time.monotonic()
+
+        # --- Streaming SDK fields ---
+        # When the amazon-transcribe-streaming-sdk is available and we are in
+        # production mode, these hold the active streaming connection state.
+        self.stream_client: Any = None
+        self.stream_response: Any = None
+        self._result_collector: Optional[_StreamingResultCollector] = None
+        self._stream_task: Optional[asyncio.Task] = None
+        self._audio_stream: Any = None
+        self.uses_streaming_sdk: bool = False
 
 
 class AWSTranscribeService:
@@ -377,6 +513,122 @@ class AWSTranscribeService:
     # Streaming transcription
     # ------------------------------------------------------------------
 
+    def _get_streaming_client(self) -> Any:
+        """
+        Create an Amazon Transcribe Streaming client using the SDK.
+
+        Returns None if the SDK is not installed.
+        """
+        if not _HAS_STREAMING_SDK:
+            return None
+
+        try:
+            kwargs: dict[str, Any] = {"region": self._settings.aws_region}
+            # The SDK's TranscribeStreamingClient picks up credentials from
+            # the standard AWS credential chain (env vars, IAM role, etc.).
+            # We don't need to pass them explicitly.
+            return TranscribeStreamingClient(**kwargs)
+        except Exception as exc:
+            logger.error(
+                "transcribe.streaming_client_init_failed",
+                error=str(exc),
+                exc_info=True,
+            )
+            return None
+
+    async def _start_streaming_connection(
+        self, session: StreamSession
+    ) -> bool:
+        """
+        Open a bidirectional HTTP/2 streaming connection to AWS Transcribe
+        Medical Streaming using the SDK.
+
+        Returns True if the connection was successfully established, False
+        otherwise (caller should fall back to batch-per-chunk).
+        """
+        if not _HAS_STREAMING_SDK:
+            return False
+
+        try:
+            client = self._get_streaming_client()
+            if client is None:
+                return False
+
+            session.stream_client = client
+            session._result_collector = _StreamingResultCollector()
+
+            # Start the medical stream transcription.
+            # The SDK manages the HTTP/2 event stream internally.
+            stream_response = await client.start_medical_stream_transcription(
+                language_code=session.language_code,
+                media_sample_rate_hz=session.sample_rate,
+                media_encoding="pcm",
+                specialty="PRIMARYCARE",
+                type=self._settings.transcribe_type,
+            )
+
+            session.stream_response = stream_response
+            session._audio_stream = stream_response.input_stream
+            session.uses_streaming_sdk = True
+
+            # Start a background task that reads transcript events from the
+            # output stream and feeds them into the result collector.
+            session._stream_task = asyncio.create_task(
+                self._read_stream_events(session)
+            )
+
+            logger.info(
+                "transcribe.streaming_connection_opened",
+                session_id=session.session_id,
+            )
+            return True
+
+        except Exception as exc:
+            logger.error(
+                "transcribe.streaming_connection_failed",
+                session_id=session.session_id,
+                error=str(exc),
+                exc_info=True,
+            )
+            # Reset any partial state
+            session.stream_client = None
+            session.stream_response = None
+            session._audio_stream = None
+            session._result_collector = None
+            session.uses_streaming_sdk = False
+            return False
+
+    async def _read_stream_events(self, session: StreamSession) -> None:
+        """
+        Background task: read transcript events from the streaming response
+        output and hand them to the session's result collector.
+        """
+        try:
+            output_stream = session.stream_response.output_stream
+            async for event in output_stream:
+                if not session.is_active:
+                    break
+                # The SDK event objects expose a .to_response_dict() or can be
+                # introspected.  We normalise to a dict for the collector.
+                if hasattr(event, "transcript_event"):
+                    # SDK model object
+                    raw = event.to_response_dict()
+                    session._result_collector.handle_transcript_event(raw)
+                elif isinstance(event, dict):
+                    session._result_collector.handle_transcript_event(event)
+        except asyncio.CancelledError:
+            logger.debug(
+                "transcribe.stream_reader_cancelled",
+                session_id=session.session_id,
+            )
+        except Exception as exc:
+            logger.error(
+                "transcribe.stream_reader_error",
+                session_id=session.session_id,
+                error=str(exc),
+                exc_info=True,
+            )
+
     async def start_stream(
         self,
         language_code: str = "en-IN",
@@ -385,8 +637,10 @@ class AWSTranscribeService:
         """
         Start a new streaming transcription session.
 
-        In production this would open a bidirectional HTTP/2 stream to
-        AWS Transcribe Streaming. Here we maintain a buffer-based session.
+        In production with the Transcribe Streaming SDK available, this opens
+        a bidirectional HTTP/2 event stream to AWS Transcribe Medical
+        Streaming.  Otherwise it falls back to a buffer-based approach that
+        batch-transcribes accumulated chunks.
         """
         session_id = uuid.uuid4().hex
         session = StreamSession(
@@ -394,10 +648,31 @@ class AWSTranscribeService:
             language_code=language_code,
             sample_rate=sample_rate,
         )
+
+        # Attempt to open a real streaming connection in production
+        if self._settings.is_production and _HAS_STREAMING_SDK:
+            connected = await self._start_streaming_connection(session)
+            if connected:
+                logger.info(
+                    "transcribe.stream_started",
+                    session_id=session_id,
+                    language=language_code,
+                    mode="streaming_sdk",
+                )
+                return session
+            else:
+                logger.warning(
+                    "transcribe.streaming_sdk_fallback",
+                    session_id=session_id,
+                    detail="Could not establish streaming connection; "
+                           "falling back to batch-per-chunk mode",
+                )
+
         logger.info(
             "transcribe.stream_started",
             session_id=session_id,
             language=language_code,
+            mode="batch_fallback" if self._settings.is_production else "dev_fallback",
         )
         return session
 
@@ -450,8 +725,15 @@ class AWSTranscribeService:
         """
         Process accumulated audio in the stream buffer.
 
-        In production, this sends chunks to the AWS Transcribe Streaming API.
-        For development, returns a partial placeholder.
+        Behaviour depends on mode:
+        1. **Dev fallback** (non-production): returns a placeholder partial.
+        2. **Streaming SDK** (production + SDK installed + connection open):
+           sends the raw PCM audio chunk through the active event stream and
+           drains any partial/final results the background reader has
+           collected.
+        3. **Batch fallback** (production but SDK unavailable or connection
+           failed): batch-transcribes the accumulated chunk via the standard
+           Transcribe Medical job API.
         """
         buffer_size = len(session.audio_buffer)
         duration_estimate = buffer_size / (session.sample_rate * 2)
@@ -472,17 +754,71 @@ class AWSTranscribeService:
                 "medical_terms": [],
             }
 
-        # Production: send to AWS Transcribe Streaming
-        # This would use the amazon-transcribe-streaming-sdk
-        client = self._get_client()
-        loop = asyncio.get_running_loop()
+        # -----------------------------------------------------------------
+        # Production path: prefer the Streaming SDK if connected
+        # -----------------------------------------------------------------
+        if session.uses_streaming_sdk and session._audio_stream is not None:
+            try:
+                audio_chunk = bytes(session.audio_buffer)
+                session.audio_buffer.clear()
 
+                # Send the audio chunk through the event stream
+                await session._audio_stream.send_audio_event(
+                    audio_chunk=audio_chunk
+                )
+
+                # Give the background reader a brief moment to process any
+                # results that arrive from the service.
+                await asyncio.sleep(0.05)
+
+                # Drain any results the collector has gathered
+                if session._result_collector is not None:
+                    collected = session._result_collector.drain_results()
+                    if collected:
+                        # Return the most recent result (partial or final)
+                        latest = collected[-1]
+                        session.partial_transcript = latest.get(
+                            "transcript", ""
+                        )
+                        # Accumulate final segments into the session
+                        for r in collected:
+                            if not r.get("is_partial", True):
+                                session.final_segments.extend(
+                                    session._result_collector.final_segments
+                                )
+                        return latest
+
+                # No results yet -- return a partial indicator
+                return {
+                    "transcript": session.partial_transcript or "",
+                    "is_partial": True,
+                    "confidence": 0.0,
+                    "medical_terms": [],
+                }
+
+            except Exception as exc:
+                logger.error(
+                    "transcribe.streaming_send_error",
+                    session_id=session.session_id,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                # Mark the streaming connection as broken so subsequent
+                # chunks use the batch fallback.
+                session.uses_streaming_sdk = False
+                session._audio_stream = None
+                logger.warning(
+                    "transcribe.streaming_degraded_to_batch",
+                    session_id=session.session_id,
+                )
+                # Fall through to batch path below
+
+        # -----------------------------------------------------------------
+        # Batch-per-chunk fallback (production, no streaming SDK or broken)
+        # -----------------------------------------------------------------
         audio_chunk = bytes(session.audio_buffer)
         session.audio_buffer.clear()
 
-        # NOTE: Full production streaming implementation would use
-        # amazon-transcribe-streaming-sdk with event streams.
-        # This is a simplified version using batch processing of chunks.
         try:
             result = await self.transcribe_audio(
                 audio_bytes=audio_chunk,
@@ -502,12 +838,122 @@ class AWSTranscribeService:
     async def end_stream(
         self, session: StreamSession
     ) -> Optional[dict[str, Any]]:
-        """End a streaming session and return any remaining transcript."""
+        """
+        End a streaming session and return any remaining transcript.
+
+        If the session was using the Transcribe Streaming SDK, this:
+        1. Sends any remaining buffered audio through the event stream.
+        2. Signals end-of-stream to the service.
+        3. Waits for final transcript results from the background reader.
+        4. Closes the streaming connection and cancels the reader task.
+        """
         session.is_active = False
+        elapsed = round(time.monotonic() - session.created_at, 3)
+
+        # -----------------------------------------------------------------
+        # Streaming SDK path: close the event stream gracefully
+        # -----------------------------------------------------------------
+        if session.uses_streaming_sdk and session._audio_stream is not None:
+            try:
+                # Send any remaining buffered audio
+                if session.audio_buffer:
+                    remaining_audio = bytes(session.audio_buffer)
+                    session.audio_buffer.clear()
+                    await session._audio_stream.send_audio_event(
+                        audio_chunk=remaining_audio
+                    )
+
+                # Signal end of the audio stream
+                await session._audio_stream.end_stream()
+
+                # Wait briefly for the background reader to finish processing
+                # final events from the service.
+                if session._stream_task is not None:
+                    try:
+                        await asyncio.wait_for(session._stream_task, timeout=5.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "transcribe.stream_reader_timeout",
+                            session_id=session.session_id,
+                        )
+                        session._stream_task.cancel()
+
+                # Collect final results
+                final_result: Optional[dict[str, Any]] = None
+                if session._result_collector is not None:
+                    collected = session._result_collector.drain_results()
+                    # Prefer the last final (non-partial) result
+                    for r in reversed(collected):
+                        if not r.get("is_partial", True):
+                            final_result = r
+                            break
+                    # If no final result was pending, synthesise one from
+                    # the full accumulated transcript.
+                    if final_result is None:
+                        full_transcript = (
+                            session._result_collector.final_transcript.strip()
+                        )
+                        if full_transcript:
+                            avg_conf = (
+                                session._result_collector.confidence_sum
+                                / session._result_collector.confidence_count
+                                if session._result_collector.confidence_count
+                                else 0.0
+                            )
+                            lower_text = full_transcript.lower()
+                            medical_terms = [
+                                term
+                                for term in MEDICAL_VOCABULARY_BOOST
+                                if term.lower() in lower_text
+                            ]
+                            final_result = {
+                                "transcript": full_transcript,
+                                "is_partial": False,
+                                "confidence": avg_conf,
+                                "medical_terms": medical_terms,
+                            }
+
+                logger.info(
+                    "transcribe.stream_ended",
+                    session_id=session.session_id,
+                    elapsed=elapsed,
+                    mode="streaming_sdk",
+                )
+
+                # Clean up references
+                session.stream_client = None
+                session.stream_response = None
+                session._audio_stream = None
+                session._result_collector = None
+                session._stream_task = None
+
+                return final_result
+
+            except Exception as exc:
+                logger.error(
+                    "transcribe.stream_end_error",
+                    session_id=session.session_id,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                # Clean up even on error
+                if session._stream_task is not None:
+                    session._stream_task.cancel()
+                session.stream_client = None
+                session.stream_response = None
+                session._audio_stream = None
+                session._result_collector = None
+                session._stream_task = None
+                # Fall through to batch fallback below
+
+        # -----------------------------------------------------------------
+        # Non-streaming paths (dev fallback / batch fallback)
+        # -----------------------------------------------------------------
         logger.info(
             "transcribe.stream_ended",
             session_id=session.session_id,
-            elapsed=round(time.monotonic() - session.created_at, 3),
+            elapsed=elapsed,
+            mode="batch_fallback" if self._settings.is_production else "dev_fallback",
         )
 
         # Process any remaining audio in the buffer

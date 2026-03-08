@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   List,
@@ -25,77 +25,6 @@ import { PageHeader } from '@/components/ui/page-header';
 import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
 
-// ---------------------------------------------------------------------------
-// Mock notifications
-// ---------------------------------------------------------------------------
-
-const MOCK_NOTIFICATIONS: Notification[] = [
-  {
-    id: 'notif-001',
-    type: 'new_match',
-    title: 'New Trial Match!',
-    titleHi: 'नया ट्रायल मैच!',
-    body: 'A new clinical trial for Type 2 Diabetes management has been matched to your profile with 92% compatibility.',
-    bodyHi: 'टाइप 2 मधुमेह प्रबंधन के लिए एक नया क्लिनिकल ट्रायल 92% संगतता के साथ आपकी प्रोफाइल से मेल खाता है।',
-    read: false,
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    trialId: 'trial-001',
-  },
-  {
-    id: 'notif-002',
-    type: 'trial_update',
-    title: 'Trial Status Updated',
-    titleHi: 'ट्रायल स्थिति अपडेट',
-    body: 'The "Ayurvedic Formulation for Hypertension" trial has started recruiting patients in your area.',
-    bodyHi: '"उच्च रक्तचाप के लिए आयुर्वेदिक फॉर्मूलेशन" ट्रायल ने आपके क्षेत्र में रोगियों की भर्ती शुरू कर दी है।',
-    read: false,
-    createdAt: new Date(Date.now() - 7200000).toISOString(),
-    trialId: 'trial-002',
-  },
-  {
-    id: 'notif-003',
-    type: 'enrollment_reminder',
-    title: 'Enrollment Deadline Approaching',
-    titleHi: 'नामांकन की समय सीमा निकट',
-    body: 'The diabetes management trial (NCT05678901) enrollment closes in 14 days. Express your interest soon.',
-    bodyHi: 'मधुमेह प्रबंधन ट्रायल (NCT05678901) का नामांकन 14 दिनों में बंद हो जाएगा। जल्द ही अपनी रुचि व्यक्त करें।',
-    read: true,
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    trialId: 'trial-001',
-  },
-  {
-    id: 'notif-004',
-    type: 'general',
-    title: 'Welcome to Vaidyah!',
-    titleHi: 'वैद्यह में आपका स्वागत है!',
-    body: 'Your profile has been set up and we are now matching you with eligible clinical trials. Check back regularly for updates.',
-    bodyHi: 'आपकी प्रोफाइल सेट हो गई है और अब हम आपको पात्र क्लिनिकल ट्रायल्स से मिला रहे हैं। अपडेट के लिए नियमित रूप से जाँच करें।',
-    read: true,
-    createdAt: new Date(Date.now() - 172800000).toISOString(),
-  },
-  {
-    id: 'notif-005',
-    type: 'new_match',
-    title: 'Potential Match Found',
-    titleHi: 'संभावित मैच मिला',
-    body: 'A yoga-based hypertension management trial is now recruiting. Match score: 55%.',
-    bodyHi: 'योग-आधारित उच्च रक्तचाप प्रबंधन ट्रायल अब भर्ती कर रहा है। मैच स्कोर: 55%।',
-    read: false,
-    createdAt: new Date(Date.now() - 259200000).toISOString(),
-    trialId: 'trial-004',
-  },
-  {
-    id: 'notif-006',
-    type: 'trial_update',
-    title: 'New Location Added',
-    titleHi: 'नया स्थान जोड़ा गया',
-    body: 'The mHealth diabetes trial now has a site in Agra. Check if it is convenient for you.',
-    bodyHi: 'mHealth मधुमेह ट्रायल का अब आगरा में एक साइट है। जांचें कि क्या यह आपके लिए सुविधाजनक है।',
-    read: true,
-    createdAt: new Date(Date.now() - 345600000).toISOString(),
-    trialId: 'trial-003',
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Helper: relative time
@@ -143,7 +72,6 @@ export default function NotificationsPage() {
   const { language } = useTranslation();
   const {
     notifications,
-    addNotification,
     markNotificationRead,
     markAllRead,
     getUnreadCount,
@@ -155,15 +83,14 @@ export default function NotificationsPage() {
 
   const { data: fetchedNotifications } = useQuery({
     queryKey: ['patient', 'notifications'],
-    queryFn: fetchWithFallback<Notification[]>(endpoints.notifications.list, MOCK_NOTIFICATIONS),
+    queryFn: fetchWithFallback<Notification[]>(endpoints.notifications.list),
     staleTime: 30_000,
   });
 
   // Sync fetched data into store
   useEffect(() => {
-    if (!initialized) {
-      const data = fetchedNotifications ?? MOCK_NOTIFICATIONS;
-      setNotifications(data);
+    if (!initialized && fetchedNotifications) {
+      setNotifications(fetchedNotifications);
       setInitialized(true);
     }
   }, [initialized, fetchedNotifications, setNotifications]);

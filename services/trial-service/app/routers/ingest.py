@@ -186,13 +186,13 @@ async def upsert_trial(trial: ClinicalTrial, _user: AuthenticatedUser = Depends(
             detail=f"Failed to upsert trial {trial.nct_id}.",
         )
 
-    # Index into OpenSearch
+    # Index into PostgreSQL full-text search
     try:
-        from app.services.opensearch_client import TrialOpenSearchClient, get_opensearch_client
+        from app.services.opensearch_client import get_opensearch_client
 
         os_client = get_opensearch_client()
-        index_doc = TrialOpenSearchClient._trial_to_doc(trial)
-        os_client.index_trial(trial.nct_id, index_doc)
+        index_doc = trial.model_dump(mode="json", exclude_none=True)
+        await os_client.index_trial(trial.nct_id, index_doc)
         logger.info("trial_indexed", nct_id=trial.nct_id)
     except Exception:
         logger.warning("trial_index_failed", nct_id=trial.nct_id, exc_info=True)
@@ -274,12 +274,12 @@ async def delete_trial(nct_id: str, _user: AuthenticatedUser = Depends(require_a
 
     await execute("DELETE FROM trials WHERE nct_id = $1", nct_id)
 
-    # Remove from OpenSearch index
+    # Remove from search index
     try:
         from app.services.opensearch_client import get_opensearch_client
 
         os_client = get_opensearch_client()
-        os_client.delete_trial(nct_id)
+        await os_client.delete_trial(nct_id)
     except Exception:
         logger.warning("trial_index_delete_failed", nct_id=nct_id, exc_info=True)
 
@@ -394,12 +394,12 @@ async def _run_etl_sync(
                             json.dumps(trial_data),
                         )
 
-                        # Index into OpenSearch
+                        # Index into PostgreSQL full-text search
                         try:
                             from app.services.opensearch_client import get_opensearch_client
 
                             os_client = get_opensearch_client()
-                            os_client.index_trial(nct_id, trial_data)
+                            await os_client.index_trial(nct_id, trial_data)
                             trials_indexed += 1
                         except Exception:
                             logger.warning(

@@ -23,3 +23,7 @@ __pycache__/
 repos/
 .turbo/
 .claude/
+*.tsbuildinfo
+.vercel/
+*.pem
+terraform-outputs.json

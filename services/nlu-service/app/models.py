@@ -47,12 +47,30 @@ class ContradictionSeverity(str, Enum):
 
 
 class SupportedLanguage(str, Enum):
+    """All 22 Scheduled Languages of India plus English."""
     ENGLISH = "en"
     HINDI = "hi"
     BENGALI = "bn"
     TAMIL = "ta"
     TELUGU = "te"
     MARATHI = "mr"
+    GUJARATI = "gu"
+    KANNADA = "kn"
+    MALAYALAM = "ml"
+    PUNJABI = "pa"
+    ODIA = "or"
+    ASSAMESE = "as"
+    URDU = "ur"
+    MAITHILI = "mai"
+    SANTALI = "sat"
+    KASHMIRI = "ks"
+    NEPALI = "ne"
+    SINDHI = "sd"
+    KONKANI = "kok"
+    DOGRI = "doi"
+    MANIPURI = "mni"
+    BODO = "brx"
+    SANSKRIT = "sa"
 
 
 class MedicalEntityType(str, Enum):

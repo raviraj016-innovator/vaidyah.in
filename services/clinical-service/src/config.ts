@@ -49,7 +49,7 @@ export const config = {
 
   /** Database */
   database: {
-    url: prodRequireEnv('DATABASE_URL', 'postgresql://localhost:5432/vaidyah'),
+    url: prodRequireEnv('DATABASE_URL', ''),
     poolMin: intEnv('DB_POOL_MIN', 2),
     poolMax: intEnv('DB_POOL_MAX', 10),
     idleTimeoutMs: intEnv('DB_IDLE_TIMEOUT_MS', 30000),
@@ -70,10 +70,11 @@ export const config = {
     clientId: optionalEnv('COGNITO_CLIENT_ID', ''),
   },
 
-  /** JWT fallback for dev */
+  /** JWT */
   jwt: {
     secret: (() => {
-      const s = prodRequireEnv('JWT_SECRET', 'dev-secret-do-not-use-in-production');
+      const s = process.env.JWT_SECRET;
+      if (!s) throw new Error('JWT_SECRET environment variable is required');
       if (isProd && s.length < 32) {
         throw new Error('JWT_SECRET must be at least 32 characters in production');
       }

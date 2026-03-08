@@ -12,6 +12,7 @@ import {
   FileTextOutlined,
   BarChartOutlined,
   ApiOutlined,
+  ExperimentOutlined,
   LogoutOutlined,
   UserOutlined,
   HeartOutlined,
@@ -44,6 +45,11 @@ const MENU_ITEMS: MenuProps['items'] = [
     key: '/admin/consultations',
     icon: <FileTextOutlined />,
     label: <Link href="/admin/consultations" prefetch>Consultations</Link>,
+  },
+  {
+    key: '/admin/trials',
+    icon: <ExperimentOutlined />,
+    label: <Link href="/admin/trials" prefetch>Clinical Trials</Link>,
   },
   {
     key: '/admin/analytics',

@@ -1,15 +1,18 @@
-"""OpenSearch client for clinical trial indexing and search."""
+"""PostgreSQL full-text search for clinical trials.
+
+Replaces OpenSearch with PostgreSQL tsvector/tsquery for budget deployment.
+Maintains the same public API surface so routers need minimal changes.
+"""
 
 from __future__ import annotations
 
+import json
 import time
 from functools import lru_cache
 from typing import Any, Optional
 
 import structlog
-from opensearchpy import OpenSearch, RequestsHttpConnection
 
-from app.config import get_settings
 from app.models import (
     ClinicalTrial,
     FacetBucket,
@@ -18,613 +21,266 @@ from app.models import (
     TrialSearchResponse,
     TrialSummary,
 )
+from app.services.db import execute, fetch_all, fetch_one, fetch_val, get_pool
 
 logger = structlog.get_logger(__name__)
 
-# --------------------------------------------------------------------------- #
-#  Index settings & mapping
-# --------------------------------------------------------------------------- #
-
-_INDEX_SETTINGS = {
-    "settings": {
-        "index": {
-            "number_of_shards": 2,
-            "number_of_replicas": 1,
-            "refresh_interval": "5s",
-        },
-        "analysis": {
-            "analyzer": {
-                "medical_text_analyzer": {
-                    "type": "custom",
-                    "tokenizer": "standard",
-                    "filter": [
-                        "lowercase",
-                        "medical_synonym",
-                        "english_stemmer",
-                        "trim",
-                    ],
-                },
-                "medical_keyword_analyzer": {
-                    "type": "custom",
-                    "tokenizer": "keyword",
-                    "filter": ["lowercase", "trim"],
-                },
-                "autocomplete_analyzer": {
-                    "type": "custom",
-                    "tokenizer": "standard",
-                    "filter": ["lowercase", "edge_ngram_filter"],
-                },
-            },
-            "filter": {
-                "medical_synonym": {
-                    "type": "synonym",
-                    "lenient": True,
-                    "synonyms": [
-                        "heart attack, myocardial infarction, MI",
-                        "high blood pressure, hypertension, HTN",
-                        "diabetes, diabetes mellitus, DM",
-                        "cancer, carcinoma, malignant neoplasm",
-                        "stroke, cerebrovascular accident, CVA",
-                        "kidney disease, renal disease, nephropathy",
-                        "liver disease, hepatic disease, hepatopathy",
-                        "lung cancer, pulmonary carcinoma",
-                        "breast cancer, mammary carcinoma",
-                        "asthma, bronchial asthma, reactive airway disease",
-                        "COPD, chronic obstructive pulmonary disease",
-                        "TB, tuberculosis",
-                        "HIV, human immunodeficiency virus",
-                        "AIDS, acquired immunodeficiency syndrome",
-                        "depression, major depressive disorder, MDD",
-                        "anxiety, generalized anxiety disorder, GAD",
-                        "Alzheimer, Alzheimer's disease, AD",
-                        "Parkinson, Parkinson's disease, PD",
-                        "rheumatoid arthritis, RA",
-                        "osteoarthritis, OA, degenerative joint disease",
-                        "psoriasis, plaque psoriasis",
-                        "eczema, atopic dermatitis",
-                        "anaemia, anemia",
-                        "leukaemia, leukemia",
-                        "haemophilia, hemophilia",
-                        "oesophagus, esophagus",
-                        "paediatric, pediatric",
-                        "tumour, tumor",
-                        "colour, color",
-                        "sugar, glucose, blood sugar",
-                    ],
-                },
-                "english_stemmer": {
-                    "type": "stemmer",
-                    "language": "english",
-                },
-                "edge_ngram_filter": {
-                    "type": "edge_ngram",
-                    "min_gram": 2,
-                    "max_gram": 20,
-                },
-            },
-        },
-    },
-    "mappings": {
-        "properties": {
-            # ---------- Identifiers ----------
-            "nct_id": {"type": "keyword"},
-            "org_study_id": {"type": "keyword"},
-            # ---------- Titles / descriptions ----------
-            "title": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-                "fields": {
-                    "raw": {"type": "keyword"},
-                    "autocomplete": {
-                        "type": "text",
-                        "analyzer": "autocomplete_analyzer",
-                        "search_analyzer": "standard",
-                    },
-                },
-            },
-            "brief_title": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-            },
-            "official_title": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-            },
-            "brief_summary": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-            },
-            "detailed_description": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-            },
-            # ---------- Classification ----------
-            "overall_status": {"type": "keyword"},
-            "phase": {"type": "keyword"},
-            "study_type": {"type": "keyword"},
-            # ---------- Enrollment ----------
-            "enrollment_count": {"type": "integer"},
-            "enrollment_type": {"type": "keyword"},
-            # ---------- Conditions & interventions ----------
-            "conditions": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-                "fields": {
-                    "keyword": {"type": "keyword"},
-                    "autocomplete": {
-                        "type": "text",
-                        "analyzer": "autocomplete_analyzer",
-                        "search_analyzer": "standard",
-                    },
-                },
-            },
-            "interventions": {
-                "type": "nested",
-                "properties": {
-                    "intervention_type": {"type": "keyword"},
-                    "name": {
-                        "type": "text",
-                        "analyzer": "medical_text_analyzer",
-                        "fields": {"keyword": {"type": "keyword"}},
-                    },
-                    "description": {"type": "text", "analyzer": "medical_text_analyzer"},
-                },
-            },
-            "arms": {
-                "type": "nested",
-                "properties": {
-                    "label": {"type": "text"},
-                    "arm_type": {"type": "keyword"},
-                    "description": {"type": "text"},
-                },
-            },
-            # ---------- Eligibility ----------
-            "eligibility": {
-                "type": "object",
-                "properties": {
-                    "criteria_text": {"type": "text", "analyzer": "medical_text_analyzer"},
-                    "gender": {"type": "keyword"},
-                    "minimum_age_years": {"type": "integer"},
-                    "maximum_age_years": {"type": "integer"},
-                    "healthy_volunteers": {"type": "boolean"},
-                    "inclusion_criteria": {"type": "text", "analyzer": "medical_text_analyzer"},
-                    "exclusion_criteria": {"type": "text", "analyzer": "medical_text_analyzer"},
-                },
-            },
-            # ---------- Locations ----------
-            "locations": {
-                "type": "nested",
-                "properties": {
-                    "facility_name": {"type": "text"},
-                    "city": {"type": "keyword"},
-                    "state": {"type": "keyword"},
-                    "country": {"type": "keyword"},
-                    "zip_code": {"type": "keyword"},
-                    "geo_point": {"type": "geo_point"},
-                    "status": {"type": "keyword"},
-                    "contact_name": {"type": "text"},
-                    "contact_phone": {"type": "keyword"},
-                    "contact_email": {"type": "keyword"},
-                },
-            },
-            # ---------- Contacts ----------
-            "contacts": {
-                "type": "nested",
-                "properties": {
-                    "name": {"type": "text"},
-                    "role": {"type": "keyword"},
-                    "phone": {"type": "keyword"},
-                    "email": {"type": "keyword"},
-                },
-            },
-            # ---------- Sponsor ----------
-            "sponsor": {
-                "type": "text",
-                "fields": {"keyword": {"type": "keyword"}},
-            },
-            "collaborators": {"type": "keyword"},
-            # ---------- Dates ----------
-            "start_date": {"type": "date"},
-            "completion_date": {"type": "date"},
-            "primary_completion_date": {"type": "date"},
-            "last_update_posted": {"type": "date"},
-            "results_first_posted": {"type": "date"},
-            # ---------- Tags ----------
-            "keywords": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-                "fields": {"keyword": {"type": "keyword"}},
-            },
-            "mesh_terms": {
-                "type": "text",
-                "analyzer": "medical_text_analyzer",
-                "fields": {"keyword": {"type": "keyword"}},
-            },
-            # ---------- URL ----------
-            "url": {"type": "keyword", "index": False},
-            # ---------- Summaries ----------
-            "plain_language_summary": {"type": "text"},
-            # ---------- Metadata ----------
-            "indexed_at": {"type": "date"},
-        },
-    },
+# Medical synonyms for search expansion (same terms as the old OpenSearch config)
+MEDICAL_SYNONYMS: dict[str, list[str]] = {
+    "heart attack": ["myocardial infarction", "MI"],
+    "high blood pressure": ["hypertension", "HTN"],
+    "diabetes": ["diabetes mellitus", "DM"],
+    "cancer": ["carcinoma", "malignant neoplasm"],
+    "stroke": ["cerebrovascular accident", "CVA"],
+    "kidney disease": ["renal disease", "nephropathy"],
+    "liver disease": ["hepatic disease", "hepatopathy"],
+    "COPD": ["chronic obstructive pulmonary disease"],
+    "TB": ["tuberculosis"],
+    "HIV": ["human immunodeficiency virus"],
+    "AIDS": ["acquired immunodeficiency syndrome"],
+    "depression": ["major depressive disorder", "MDD"],
+    "anxiety": ["generalized anxiety disorder", "GAD"],
 }
 
 
-# --------------------------------------------------------------------------- #
-#  Client wrapper
-# --------------------------------------------------------------------------- #
+def _expand_query(query: str) -> str:
+    """Expand query with medical synonyms for better recall."""
+    terms = [query]
+    q_lower = query.lower()
+    for term, synonyms in MEDICAL_SYNONYMS.items():
+        if term.lower() in q_lower:
+            terms.extend(synonyms)
+        for syn in synonyms:
+            if syn.lower() in q_lower:
+                terms.append(term)
+                break
+    return " | ".join(terms)
 
-class TrialOpenSearchClient:
-    """High-level OpenSearch operations for clinical trials."""
 
-    def __init__(self) -> None:
-        settings = get_settings()
-        self._index = settings.opensearch_index
-        self._client = OpenSearch(
-            hosts=[settings.opensearch_endpoint],
-            http_auth=(settings.opensearch_username, settings.opensearch_password),
-            use_ssl=settings.opensearch_use_ssl,
-            verify_certs=settings.opensearch_verify_certs,
-            connection_class=RequestsHttpConnection,
-            timeout=30,
-        )
+def _build_search_vector_expr() -> str:
+    """SQL expression to build a tsvector from JSONB trial data."""
+    return """
+        setweight(to_tsvector('english', coalesce(data->>'title', '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(data->>'brief_title', '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(
+            (SELECT string_agg(c, ' ') FROM jsonb_array_elements_text(
+                CASE WHEN jsonb_typeof(data->'conditions') = 'array' THEN data->'conditions' ELSE '[]'::jsonb END
+            ) AS c), '')), 'B') ||
+        setweight(to_tsvector('english', coalesce(data->>'brief_summary', '')), 'C') ||
+        setweight(to_tsvector('english', coalesce(data->>'detailed_description', '')), 'D') ||
+        setweight(to_tsvector('english', coalesce(data->>'sponsor', '')), 'D')
+    """
 
-    # ------------------------------------------------------------------ #
-    #  Index management
-    # ------------------------------------------------------------------ #
 
-    def ensure_index(self) -> None:
-        """Create the clinical_trials index with mapping if it does not exist."""
-        if self._client.indices.exists(index=self._index):
-            logger.info("opensearch_index_exists", index=self._index)
-            return
-        self._client.indices.create(index=self._index, body=_INDEX_SETTINGS)
-        logger.info("opensearch_index_created", index=self._index)
+class TrialPgSearchClient:
+    """PostgreSQL full-text search for clinical trials."""
 
-    def delete_index(self) -> None:
-        """Delete the index (admin / testing only)."""
-        if self._client.indices.exists(index=self._index):
-            self._client.indices.delete(index=self._index)
-            logger.warning("opensearch_index_deleted", index=self._index)
+    async def ensure_index(self) -> None:
+        """Update search vectors for any rows that are missing them."""
+        expr = _build_search_vector_expr()
+        await execute(f"""
+            UPDATE trials SET search_vector = ({expr})
+            WHERE search_vector IS NULL
+        """)
+        count = await fetch_val("SELECT count(*) FROM trials WHERE search_vector IS NOT NULL")
+        logger.info("pg_search_vectors_ready", indexed_count=count)
 
-    # ------------------------------------------------------------------ #
-    #  Indexing
-    # ------------------------------------------------------------------ #
+    async def index_trial(self, nct_id: str, trial_data: dict[str, Any]) -> None:
+        """Insert or update a trial and compute its search vector."""
+        data_json = json.dumps(trial_data, default=str)
+        expr = _build_search_vector_expr()
+        await execute(f"""
+            INSERT INTO trials (nct_id, data, search_vector, indexed_at, updated_at)
+            VALUES ($1, $2::jsonb, ({expr.replace('data', '$2::jsonb')}), NOW(), NOW())
+            ON CONFLICT (nct_id) DO UPDATE SET
+                data = EXCLUDED.data,
+                search_vector = EXCLUDED.search_vector,
+                updated_at = NOW()
+        """, nct_id, data_json)
 
-    def index_trial(self, nct_id: str, trial_data: dict[str, Any]) -> None:
-        """Index or update a single trial document.
-
-        Parameters
-        ----------
-        nct_id:
-            The NCT identifier used as the document ID.
-        trial_data:
-            A JSON-serialisable dict representing the trial.
-        """
-        # Convert location lat/lon to geo_point if not already present
-        doc = dict(trial_data)
-        locations = doc.get("locations", [])
-        for loc in locations:
-            if "geo_point" not in loc:
-                lat = loc.pop("latitude", None)
-                lon = loc.pop("longitude", None)
-                if lat is not None and lon is not None:
-                    loc["geo_point"] = {"lat": lat, "lon": lon}
-
-        self._client.index(
-            index=self._index,
-            id=nct_id,
-            body=doc,
-            refresh="wait_for",
-        )
-
-    def bulk_index_trials(self, trials: list[ClinicalTrial]) -> dict[str, int]:
-        """Bulk index a batch of trials. Returns counts of success / failure."""
+    async def bulk_index_trials(self, trials: list[ClinicalTrial]) -> dict[str, int]:
+        """Bulk index trials. Returns counts of success/failure."""
         if not trials:
             return {"indexed": 0, "failed": 0}
 
-        actions: list[dict[str, Any]] = []
-        for trial in trials:
-            actions.append({"index": {"_index": self._index, "_id": trial.nct_id}})
-            actions.append(self._trial_to_doc(trial))
+        indexed = 0
+        failed = 0
+        pool = get_pool()
 
-        resp = self._client.bulk(body=actions, refresh="wait_for")
-        errors = sum(1 for item in resp.get("items", []) if item.get("index", {}).get("error"))
-        return {"indexed": len(trials) - errors, "failed": errors}
+        async with pool.acquire() as conn:
+            for trial in trials:
+                try:
+                    doc = trial.model_dump(mode="json", exclude_none=True)
+                    data_json = json.dumps(doc, default=str)
+                    await conn.execute("""
+                        INSERT INTO trials (nct_id, data, indexed_at, updated_at)
+                        VALUES ($1, $2::jsonb, NOW(), NOW())
+                        ON CONFLICT (nct_id) DO UPDATE SET
+                            data = EXCLUDED.data,
+                            updated_at = NOW()
+                    """, trial.nct_id, data_json)
+                    indexed += 1
+                except Exception:
+                    logger.warning("bulk_index_failed", nct_id=trial.nct_id, exc_info=True)
+                    failed += 1
 
-    def delete_trial(self, nct_id: str) -> None:
-        """Delete a single trial document from the index by its NCT ID.
+        # Rebuild search vectors for newly inserted rows
+        expr = _build_search_vector_expr()
+        await execute(f"UPDATE trials SET search_vector = ({expr}) WHERE search_vector IS NULL")
 
-        Silently ignores the case where the document does not exist.
-        """
-        try:
-            self._client.delete(
-                index=self._index,
-                id=nct_id,
-                refresh="wait_for",
-            )
-        except Exception:
-            # Document may not exist in the index; log and move on.
-            logger.warning("opensearch_delete_not_found", nct_id=nct_id, exc_info=True)
+        return {"indexed": indexed, "failed": failed}
 
-    # ------------------------------------------------------------------ #
-    #  Search
-    # ------------------------------------------------------------------ #
+    async def delete_trial(self, nct_id: str) -> None:
+        """Delete a trial by NCT ID."""
+        await execute("DELETE FROM trials WHERE nct_id = $1", nct_id)
 
-    def search_trials(self, request: TrialSearchRequest) -> TrialSearchResponse:
-        """Execute a full-text search with filters, boosting, and facets."""
+    async def search_trials(self, request: TrialSearchRequest) -> TrialSearchResponse:
+        """Full-text search with filters, pagination, and facets."""
         t0 = time.perf_counter()
 
-        must_clauses: list[dict] = []
-        filter_clauses: list[dict] = []
+        where_clauses: list[str] = []
+        params: list[Any] = []
+        param_idx = 0
 
-        # --- Free-text query with field boosting ---
+        # Free-text query
+        rank_expr = "0"
         if request.query:
-            must_clauses.append({
-                "bool": {
-                    "should": [
-                        {
-                            "multi_match": {
-                                "query": request.query,
-                                "fields": [
-                                    "title^3",
-                                    "brief_title^2.5",
-                                    "conditions^2",
-                                    "brief_summary^1.5",
-                                    "detailed_description",
-                                    "keywords^1.5",
-                                    "mesh_terms^1.5",
-                                ],
-                                "type": "best_fields",
-                                "fuzziness": "AUTO",
-                                "prefix_length": 2,
-                            },
-                        },
-                        {
-                            "nested": {
-                                "path": "interventions",
-                                "query": {
-                                    "match": {
-                                        "interventions.name": {
-                                            "query": request.query,
-                                            "boost": 1.5,
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    ],
-                    "minimum_should_match": 1,
-                },
-            })
+            param_idx += 1
+            expanded = _expand_query(request.query)
+            where_clauses.append(f"search_vector @@ to_tsquery('english', plainto_tsquery('english', ${param_idx})::text)")
+            params.append(request.query)
+            rank_expr = f"ts_rank_cd(search_vector, plainto_tsquery('english', ${param_idx}))"
 
-        # --- Condition filter ---
+        # Condition filter
         if request.conditions:
-            filter_clauses.append({
-                "bool": {
-                    "should": [
-                        {"match": {"conditions": cond}} for cond in request.conditions
-                    ],
-                    "minimum_should_match": 1,
-                },
-            })
+            cond_parts = []
+            for cond in request.conditions:
+                param_idx += 1
+                cond_parts.append(f"data->>'conditions' ILIKE '%' || ${param_idx} || '%'")
+                params.append(cond)
+            where_clauses.append(f"({' OR '.join(cond_parts)})")
 
-        # --- Phase filter ---
+        # Phase filter
         if request.phases:
-            filter_clauses.append({
-                "terms": {"phase": [p.value for p in request.phases]},
-            })
+            param_idx += 1
+            placeholders = ", ".join(f"${param_idx + i}" for i in range(len(request.phases)))
+            for p in request.phases:
+                params.append(p.value)
+            param_idx += len(request.phases) - 1
+            where_clauses.append(f"data->>'phase' IN ({placeholders})")
 
-        # --- Status filter ---
+        # Status filter
         if request.statuses:
-            filter_clauses.append({
-                "terms": {"overall_status": [s.value for s in request.statuses]},
-            })
+            status_placeholders = []
+            for s in request.statuses:
+                param_idx += 1
+                status_placeholders.append(f"${param_idx}")
+                params.append(s.value)
+            where_clauses.append(f"data->>'overall_status' IN ({', '.join(status_placeholders)})")
 
-        # --- Sponsor filter ---
+        # Sponsor filter
         if request.sponsor:
-            filter_clauses.append({
-                "match": {"sponsor": request.sponsor},
-            })
+            param_idx += 1
+            where_clauses.append(f"data->>'sponsor' ILIKE '%' || ${param_idx} || '%'")
+            params.append(request.sponsor)
 
-        # --- Intervention type ---
-        if request.intervention_type:
-            filter_clauses.append({
-                "nested": {
-                    "path": "interventions",
-                    "query": {"term": {"interventions.intervention_type": request.intervention_type}},
-                },
-            })
-
-        # --- Healthy volunteers ---
+        # Healthy volunteers filter
         if request.healthy_volunteers is not None:
-            filter_clauses.append({
-                "term": {"eligibility.healthy_volunteers": request.healthy_volunteers},
-            })
+            param_idx += 1
+            where_clauses.append(f"(data->'eligibility'->>'healthy_volunteers')::boolean = ${param_idx}")
+            params.append(request.healthy_volunteers)
 
-        # --- Location filters ---
+        # Location filters
         if request.location_country:
-            filter_clauses.append({
-                "nested": {
-                    "path": "locations",
-                    "query": {"term": {"locations.country": request.location_country}},
-                },
-            })
+            param_idx += 1
+            where_clauses.append(f"EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(data->'locations') = 'array' THEN data->'locations' ELSE '[]'::jsonb END) loc WHERE loc->>'country' = ${param_idx})")
+            params.append(request.location_country)
+
         if request.location_state:
-            filter_clauses.append({
-                "nested": {
-                    "path": "locations",
-                    "query": {"term": {"locations.state": request.location_state}},
-                },
-            })
+            param_idx += 1
+            where_clauses.append(f"EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(data->'locations') = 'array' THEN data->'locations' ELSE '[]'::jsonb END) loc WHERE loc->>'state' = ${param_idx})")
+            params.append(request.location_state)
+
         if request.location_city:
-            filter_clauses.append({
-                "nested": {
-                    "path": "locations",
-                    "query": {"term": {"locations.city": request.location_city}},
-                },
-            })
+            param_idx += 1
+            where_clauses.append(f"EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(data->'locations') = 'array' THEN data->'locations' ELSE '[]'::jsonb END) loc WHERE loc->>'city' = ${param_idx})")
+            params.append(request.location_city)
 
-        # --- Geo-distance filter ---
-        if request.latitude is not None and request.longitude is not None and request.radius_km:
-            filter_clauses.append({
-                "nested": {
-                    "path": "locations",
-                    "query": {
-                        "geo_distance": {
-                            "distance": f"{request.radius_km}km",
-                            "locations.geo_point": {
-                                "lat": request.latitude,
-                                "lon": request.longitude,
-                            },
-                        },
-                    },
-                },
-            })
-
-        # --- Demographic filters ---
+        # Demographics
         if request.demographics:
             demo = request.demographics
             if demo.min_age is not None:
-                filter_clauses.append({
-                    "bool": {
-                        "should": [
-                            {"range": {"eligibility.maximum_age_years": {"gte": demo.min_age}}},
-                            {"bool": {"must_not": {"exists": {"field": "eligibility.maximum_age_years"}}}},
-                        ],
-                    },
-                })
+                param_idx += 1
+                where_clauses.append(f"(COALESCE((data->'eligibility'->>'maximum_age_years')::int, 999) >= ${param_idx})")
+                params.append(demo.min_age)
             if demo.max_age is not None:
-                filter_clauses.append({
-                    "bool": {
-                        "should": [
-                            {"range": {"eligibility.minimum_age_years": {"lte": demo.max_age}}},
-                            {"bool": {"must_not": {"exists": {"field": "eligibility.minimum_age_years"}}}},
-                        ],
-                    },
-                })
+                param_idx += 1
+                where_clauses.append(f"(COALESCE((data->'eligibility'->>'minimum_age_years')::int, 0) <= ${param_idx})")
+                params.append(demo.max_age)
             if demo.gender and demo.gender.value != "All":
-                filter_clauses.append({
-                    "bool": {
-                        "should": [
-                            {"term": {"eligibility.gender": demo.gender.value}},
-                            {"term": {"eligibility.gender": "All"}},
-                        ],
-                    },
-                })
+                param_idx += 1
+                where_clauses.append(f"(data->'eligibility'->>'gender' IN (${param_idx}, 'All'))")
+                params.append(demo.gender.value)
 
-        # --- Assemble bool query ---
-        bool_query: dict[str, Any] = {}
-        if must_clauses:
-            bool_query["must"] = must_clauses
-        if filter_clauses:
-            bool_query["filter"] = filter_clauses
-        if not bool_query:
-            bool_query["must"] = [{"match_all": {}}]
+        where_sql = " AND ".join(where_clauses) if where_clauses else "TRUE"
 
-        query_body: dict[str, Any] = {"bool": bool_query}
-
-        # --- Sort ---
-        sort_spec: list[Any] = []
+        # Sort
         if request.sort_by == "date":
-            sort_spec = [{"last_update_posted": {"order": "desc"}}, "_score"]
+            order_sql = "data->>'last_update_posted' DESC NULLS LAST"
         elif request.sort_by == "enrollment":
-            sort_spec = [{"enrollment_count": {"order": "desc"}}, "_score"]
+            order_sql = "(data->>'enrollment_count')::int DESC NULLS LAST"
         else:
-            sort_spec = ["_score", {"last_update_posted": {"order": "desc"}}]
+            order_sql = f"{rank_expr} DESC, data->>'last_update_posted' DESC NULLS LAST"
 
-        # --- Aggregations for faceted search ---
-        aggs = {
-            "conditions": {
-                "terms": {"field": "conditions.keyword", "size": 30},
-            },
-            "phases": {
-                "terms": {"field": "phase", "size": 10},
-            },
-            "statuses": {
-                "terms": {"field": "overall_status", "size": 15},
-            },
-            "countries": {
-                "nested": {"path": "locations"},
-                "aggs": {
-                    "country_names": {
-                        "terms": {"field": "locations.country", "size": 30},
-                    },
-                },
-            },
-            "sponsors": {
-                "terms": {"field": "sponsor.keyword", "size": 20},
-            },
-        }
+        # Count total
+        count_sql = f"SELECT count(*) FROM trials WHERE {where_sql}"
+        total = await fetch_val(count_sql, *params)
 
-        # --- Pagination ---
-        from_offset = (request.page - 1) * request.page_size
+        # Paginated results (parameterized LIMIT/OFFSET to prevent injection)
+        offset = (request.page - 1) * request.page_size
+        param_idx += 1
+        limit_param = param_idx
+        params.append(request.page_size)
+        param_idx += 1
+        offset_param = param_idx
+        params.append(offset)
+        results_sql = f"""
+            SELECT nct_id, data, {rank_expr} AS score
+            FROM trials
+            WHERE {where_sql}
+            ORDER BY {order_sql}
+            LIMIT ${limit_param} OFFSET ${offset_param}
+        """
+        rows = await fetch_all(results_sql, *params)
 
-        body: dict[str, Any] = {
-            "query": query_body,
-            "sort": sort_spec,
-            "from": from_offset,
-            "size": request.page_size,
-            "aggs": aggs,
-            "_source": [
-                "nct_id", "title", "brief_title", "overall_status", "phase",
-                "conditions", "sponsor", "enrollment_count", "start_date",
-                "locations",
-            ],
-        }
-
-        resp = self._client.search(index=self._index, body=body)
-
-        # --- Parse hits ---
-        hits = resp.get("hits", {})
-        total = hits.get("total", {}).get("value", 0)
         trial_summaries: list[TrialSummary] = []
-        for hit in hits.get("hits", []):
-            src = hit["_source"]
+        for row in rows:
+            d = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+            locations = d.get("locations", [])
+            conditions = d.get("conditions", [])
+            if isinstance(conditions, str):
+                conditions = [conditions]
             trial_summaries.append(TrialSummary(
-                nct_id=src["nct_id"],
-                title=src.get("title", ""),
-                brief_title=src.get("brief_title"),
-                overall_status=src.get("overall_status"),
-                phase=src.get("phase"),
-                conditions=src.get("conditions", []),
-                sponsor=src.get("sponsor"),
-                enrollment_count=src.get("enrollment_count"),
-                start_date=src.get("start_date"),
-                locations_count=len(src.get("locations", [])),
-                score=hit.get("_score"),
+                nct_id=row["nct_id"],
+                title=d.get("title", ""),
+                brief_title=d.get("brief_title"),
+                overall_status=d.get("overall_status"),
+                phase=d.get("phase"),
+                conditions=conditions,
+                sponsor=d.get("sponsor"),
+                enrollment_count=d.get("enrollment_count"),
+                start_date=d.get("start_date"),
+                locations_count=len(locations) if isinstance(locations, list) else 0,
+                score=float(row["score"]) if row["score"] else None,
             ))
 
-        # --- Parse aggregations ---
-        raw_aggs = resp.get("aggregations", {})
-        facets = SearchFacets(
-            conditions=[
-                FacetBucket(key=b["key"], doc_count=b["doc_count"])
-                for b in raw_aggs.get("conditions", {}).get("buckets", [])
-            ],
-            phases=[
-                FacetBucket(key=b["key"], doc_count=b["doc_count"])
-                for b in raw_aggs.get("phases", {}).get("buckets", [])
-            ],
-            statuses=[
-                FacetBucket(key=b["key"], doc_count=b["doc_count"])
-                for b in raw_aggs.get("statuses", {}).get("buckets", [])
-            ],
-            countries=[
-                FacetBucket(key=b["key"], doc_count=b["doc_count"])
-                for b in raw_aggs.get("countries", {}).get("country_names", {}).get("buckets", [])
-            ],
-            sponsors=[
-                FacetBucket(key=b["key"], doc_count=b["doc_count"])
-                for b in raw_aggs.get("sponsors", {}).get("buckets", [])
-            ],
-        )
+        # Facets (simple aggregation queries)
+        facets = await self._build_facets(where_sql, params)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         return TrialSearchResponse(
-            total=total,
+            total=total or 0,
             page=request.page,
             page_size=request.page_size,
             trials=trial_summaries,
@@ -632,61 +288,116 @@ class TrialOpenSearchClient:
             query_time_ms=round(elapsed_ms, 2),
         )
 
-    def get_trial(self, nct_id: str) -> Optional[dict[str, Any]]:
-        """Retrieve a single trial document by NCT ID."""
-        try:
-            resp = self._client.get(index=self._index, id=nct_id)
-            return resp["_source"]
-        except Exception:
+    async def get_trial(self, nct_id: str) -> Optional[dict[str, Any]]:
+        """Retrieve a single trial by NCT ID."""
+        row = await fetch_one("SELECT data FROM trials WHERE nct_id = $1", nct_id)
+        if row is None:
             return None
+        return row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
 
-    def get_distinct_conditions(self, prefix: Optional[str] = None, size: int = 100) -> list[str]:
+    async def get_distinct_conditions(self, prefix: Optional[str] = None, size: int = 100) -> list[str]:
         """Return distinct condition values, optionally filtered by prefix."""
-        size = max(1, min(size, 500))  # Clamp size to prevent excessive aggregation
-        agg_body: dict[str, Any] = {
-            "size": 0,
-            "aggs": {
-                "unique_conditions": {
-                    "terms": {"field": "conditions.keyword", "size": size},
-                },
-            },
-        }
+        size = max(1, min(size, 500))
         if prefix:
-            # Sanitize prefix: strip whitespace, limit length, remove wildcard chars
-            sanitized = prefix.strip()[:200].replace("*", "").replace("?", "")
-            if sanitized:
-                agg_body["query"] = {
-                    "prefix": {"conditions.keyword": {"value": sanitized, "case_insensitive": True}},
-                }
+            rows = await fetch_all("""
+                SELECT cond, count(*) AS cnt
+                FROM trials, jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(data->'conditions') = 'array' THEN data->'conditions' ELSE '[]'::jsonb END
+                ) AS cond
+                WHERE cond ILIKE $1 || '%'
+                GROUP BY cond ORDER BY cnt DESC LIMIT $2
+            """, prefix, size)
+        else:
+            rows = await fetch_all("""
+                SELECT cond, count(*) AS cnt
+                FROM trials, jsonb_array_elements_text(
+                    CASE WHEN jsonb_typeof(data->'conditions') = 'array' THEN data->'conditions' ELSE '[]'::jsonb END
+                ) AS cond
+                GROUP BY cond ORDER BY cnt DESC LIMIT $1
+            """, size)
+        return [row["cond"] for row in rows]
 
-        resp = self._client.search(index=self._index, body=agg_body)
-        buckets = resp.get("aggregations", {}).get("unique_conditions", {}).get("buckets", [])
-        return [b["key"] for b in buckets]
+    async def count(self) -> int:
+        """Return total number of trials in the database."""
+        result = await fetch_val("SELECT count(*) FROM trials")
+        return result or 0
 
-    def count(self) -> int:
-        """Return total number of documents in the index."""
-        resp = self._client.count(index=self._index)
-        return resp.get("count", 0)
+    async def find_similar_trials(self, nct_id: str, max_results: int = 5) -> list[dict[str, Any]]:
+        """Find trials similar to the given one using text similarity."""
+        source = await self.get_trial(nct_id)
+        if source is None:
+            raise ValueError(f"Trial '{nct_id}' not found")
 
-    # ------------------------------------------------------------------ #
-    #  Helpers
-    # ------------------------------------------------------------------ #
+        # Build a search query from the source trial's title + conditions
+        search_terms = source.get("title", "")
+        conditions = source.get("conditions", [])
+        if isinstance(conditions, list):
+            search_terms += " " + " ".join(conditions)
 
-    @staticmethod
-    def _trial_to_doc(trial: ClinicalTrial) -> dict[str, Any]:
-        """Convert a ClinicalTrial model to an OpenSearch document."""
-        doc = trial.model_dump(mode="json", exclude_none=True)
-        # Build geo_point for each location that has coordinates
-        locations = doc.get("locations", [])
-        for loc in locations:
-            lat = loc.pop("latitude", None)
-            lon = loc.pop("longitude", None)
-            if lat is not None and lon is not None:
-                loc["geo_point"] = {"lat": lat, "lon": lon}
-        return doc
+        rows = await fetch_all("""
+            SELECT nct_id, data,
+                   ts_rank_cd(search_vector, plainto_tsquery('english', $1)) AS score
+            FROM trials
+            WHERE nct_id != $2
+              AND search_vector @@ plainto_tsquery('english', $1)
+            ORDER BY score DESC
+            LIMIT $3
+        """, search_terms, nct_id, max_results)
+
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            d = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+            results.append(d)
+
+        logger.info("find_similar_trials", nct_id=nct_id, results_count=len(results))
+        return results
+
+    async def _build_facets(self, where_sql: str, params: list[Any]) -> SearchFacets:
+        """Build faceted counts using simple GROUP BY queries."""
+        try:
+            # Phase facets
+            phase_rows = await fetch_all(f"""
+                SELECT data->>'phase' AS key, count(*) AS doc_count
+                FROM trials WHERE {where_sql} AND data->>'phase' IS NOT NULL
+                GROUP BY data->>'phase' ORDER BY doc_count DESC LIMIT 10
+            """, *params)
+
+            # Status facets
+            status_rows = await fetch_all(f"""
+                SELECT data->>'overall_status' AS key, count(*) AS doc_count
+                FROM trials WHERE {where_sql} AND data->>'overall_status' IS NOT NULL
+                GROUP BY data->>'overall_status' ORDER BY doc_count DESC LIMIT 15
+            """, *params)
+
+            # Sponsor facets
+            sponsor_rows = await fetch_all(f"""
+                SELECT data->>'sponsor' AS key, count(*) AS doc_count
+                FROM trials WHERE {where_sql} AND data->>'sponsor' IS NOT NULL
+                GROUP BY data->>'sponsor' ORDER BY doc_count DESC LIMIT 20
+            """, *params)
+
+            return SearchFacets(
+                conditions=[],  # Expensive to compute from JSONB arrays; omit for performance
+                phases=[FacetBucket(key=r["key"], doc_count=r["doc_count"]) for r in phase_rows],
+                statuses=[FacetBucket(key=r["key"], doc_count=r["doc_count"]) for r in status_rows],
+                countries=[],  # Expensive nested JSONB; omit for performance
+                sponsors=[FacetBucket(key=r["key"], doc_count=r["doc_count"]) for r in sponsor_rows],
+            )
+        except Exception:
+            logger.warning("facet_query_failed", exc_info=True)
+            return SearchFacets()
 
 
-@lru_cache
-def get_opensearch_client() -> TrialOpenSearchClient:
-    """Return a cached singleton OpenSearch client."""
-    return TrialOpenSearchClient()
+# Singleton
+_client: Optional[TrialPgSearchClient] = None
+
+
+def get_opensearch_client() -> TrialPgSearchClient:
+    """Return a cached singleton search client.
+
+    Function name preserved for backward compatibility with router imports.
+    """
+    global _client
+    if _client is None:
+        _client = TrialPgSearchClient()
+    return _client

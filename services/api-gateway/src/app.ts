@@ -19,6 +19,21 @@ import {
   emergencyRouter,
   trialsRouter,
 } from './routes';
+import { authRouter } from './routes/auth';
+import { dashboardRouter, analyticsRouter, systemRouter, nurseDashboardRouter } from './routes/dashboard';
+import {
+  usersRouter,
+  centersRouter,
+  patientsManagementRouter,
+  consultationsRouter,
+  notificationsRouter,
+  sessionExtRouter,
+  emergencyExtRouter,
+  trialExtRouter,
+} from './routes/management';
+import { telemedicineRouter } from './routes/telemedicine';
+import { initializeAwsServices } from './services/aws-init';
+import { setupGraphQL } from './graphql';
 
 // ─── Express Application ─────────────────────────────────────────────────────
 
@@ -40,7 +55,8 @@ app.use(cors({
   exposedHeaders: ['X-Request-ID', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'],
   maxAge: 86400,
 }));
-app.use(compression());
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- monorepo @types/express v4/v5 mismatch
+app.use(compression() as any);
 app.use(express.json({ limit: config.server.bodyLimitBytes }));
 app.use(express.urlencoded({ extended: false, limit: config.server.bodyLimitBytes }));
 
@@ -56,7 +72,8 @@ app.use((req: Request, res: Response, next) => {
   next();
 });
 
-app.use(createRateLimiter());
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- monorepo @types/express v4/v5 mismatch
+app.use(createRateLimiter() as any);
 
 // ─── Health Check ────────────────────────────────────────────────────────────
 
@@ -111,11 +128,34 @@ app.get('/ready', async (_req: Request, res: Response) => {
 
 // ─── API v1 Routes ───────────────────────────────────────────────────────────
 
+// Auth routes (no /api/v1 prefix — frontend calls /auth/*)
+app.use('/auth', authRouter);
+
+// Core session & clinical routes
 app.use('/api/v1/sessions', sessionRouter);
+app.use('/api/v1/sessions', sessionExtRouter);
 app.use('/api/v1/patients', patientRouter);
+app.use('/api/v1/patients', patientsManagementRouter);
 app.use('/api/v1/triage', triageRouter);
 app.use('/api/v1/emergency', emergencyRouter);
+app.use('/api/v1/emergency', emergencyExtRouter);
 app.use('/api/v1/trials', trialsRouter);
+app.use('/api/v1/trials', trialExtRouter);
+
+// Dashboard, analytics, system
+app.use('/api/v1/dashboard', dashboardRouter);
+app.use('/api/v1/analytics', analyticsRouter);
+app.use('/api/v1/system', systemRouter);
+app.use('/api/v1/nurse/dashboard', nurseDashboardRouter);
+
+// Management CRUD
+app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/centers', centersRouter);
+app.use('/api/v1/consultations', consultationsRouter);
+app.use('/api/v1/notifications', notificationsRouter);
+
+// Telemedicine (video consultation + real-time transcription)
+app.use('/api/v1/telemedicine', telemedicineRouter);
 
 // ─── Fallthrough ─────────────────────────────────────────────────────────────
 
@@ -136,6 +176,12 @@ async function start(): Promise<void> {
   if (!dbReady) {
     console.warn('[App] Database is not reachable at startup; will retry on first query');
   }
+
+  // Initialize AWS services (KMS, SNS, EventBridge, CloudWatch, X-Ray, etc.)
+  await initializeAwsServices();
+
+  // Initialize GraphQL (Apollo Server + WebSocket subscriptions)
+  await setupGraphQL(app, server);
 
   server.listen(config.server.port, () => {
     console.log(

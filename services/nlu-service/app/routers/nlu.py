@@ -1,4 +1,4 @@
-"""NLU router -- symptom extraction, entity recognition, follow-ups, translation, SOAP, and summarization."""
+"""NLU router -- symptom extraction, entity recognition, contradiction detection, follow-ups, translation, SOAP, and summarization."""
 
 from __future__ import annotations
 
@@ -12,6 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.config import get_settings
 from app.middleware.auth import AuthenticatedUser, get_current_user
 from app.models import (
+    Contradiction,
+    ContradictionCheckRequest,
+    ContradictionCheckResponse,
+    ContradictionSeverity,
     FollowUpQuestion,
     FollowUpQuestionRequest,
     FollowUpQuestionResponse,
@@ -27,6 +31,7 @@ from app.models import (
 from app.services.bedrock_client import BedrockClient, BedrockClientError
 from app.services.comprehend_medical import ComprehendMedicalClient
 from app.services.medical_prompts import (
+    SYSTEM_PROMPT_CONTRADICTION_CHECK,
     SYSTEM_PROMPT_FOLLOWUP_GENERATION,
     SYSTEM_PROMPT_TRANSLATION,
 )
@@ -213,6 +218,97 @@ async def extract_symptoms(
         language_detected=body.language,
         processing_time_ms=result["processing_time_ms"],
         model_version=get_settings().bedrock_model_id,
+    )
+
+
+@router.post(
+    "/contradictions",
+    response_model=ContradictionCheckResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Detect contradictions in patient symptoms, history, and vitals",
+)
+async def check_contradictions(
+    body: ContradictionCheckRequest,
+    request: Request,
+    _user: AuthenticatedUser = Depends(get_current_user),
+) -> ContradictionCheckResponse:
+    bedrock = _get_bedrock(request)
+    start = time.monotonic()
+
+    symptoms_block = "\n".join(
+        f"- {s.name} | severity={s.severity.value} | duration={s.duration} | "
+        f"onset={s.onset} | negated={s.negated}"
+        for s in body.current_symptoms
+    ) or "No symptoms provided."
+
+    vitals_block = "None provided."
+    if body.vital_signs:
+        pairs = [
+            f"{k}={v}"
+            for k, v in body.vital_signs.model_dump(exclude_none=True).items()
+        ]
+        vitals_block = ", ".join(pairs) if pairs else "None provided."
+
+    history_block = "None provided."
+    if body.medical_history:
+        history_block = str(body.medical_history)[:2000]
+
+    conversation_block = "\n".join(
+        f"[{turn.role}] {_sanitize(turn.text)}" for turn in body.conversation_history
+    ) if body.conversation_history else "No conversation history."
+
+    user_message = (
+        f"Current symptoms:\n{symptoms_block}\n\n"
+        f"Vital signs:\n{vitals_block}\n\n"
+        f"Medical history:\n{history_block}\n\n"
+        f"Conversation:\n{conversation_block}\n\n"
+        "Analyze for contradictions. Return JSON only."
+    )
+
+    try:
+        result = await asyncio.to_thread(
+            bedrock.invoke_and_parse_json,
+            system_prompt=SYSTEM_PROMPT_CONTRADICTION_CHECK,
+            user_message=user_message,
+            temperature=0.1,
+        )
+        data: dict[str, Any] = result["data"]
+    except (BedrockClientError, ValueError) as exc:
+        logger.exception("contradiction_check_failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Contradiction check failed. Please try again.",
+        ) from exc
+
+    elapsed = (time.monotonic() - start) * 1000
+
+    contradictions: list[Contradiction] = []
+    for c in data.get("contradictions", []):
+        try:
+            contradictions.append(
+                Contradiction(
+                    description=c.get("description", ""),
+                    statement_a=c.get("statement_a", ""),
+                    statement_b=c.get("statement_b", ""),
+                    severity=ContradictionSeverity(c.get("severity", "medium")),
+                    category=c.get("category", "general"),
+                    confidence=float(c.get("confidence", 0.5)),
+                    suggested_questions=c.get("suggested_questions", []),
+                )
+            )
+        except (ValueError, KeyError):
+            logger.warning("contradiction_parse_error", raw=c)
+
+    has_critical = any(
+        c.severity in (ContradictionSeverity.CRITICAL, ContradictionSeverity.HIGH)
+        for c in contradictions
+    )
+
+    return ContradictionCheckResponse(
+        contradictions=contradictions,
+        has_critical=has_critical,
+        summary=data.get("summary", ""),
+        processing_time_ms=round(elapsed, 1),
     )
 
 

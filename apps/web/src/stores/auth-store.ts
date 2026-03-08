@@ -32,6 +32,7 @@ export interface AdminUser {
   state?: string;
   district?: string;
   lastLogin: string;
+  profileComplete?: boolean;
 }
 
 export interface NurseUser {
@@ -44,6 +45,7 @@ export interface NurseUser {
   phone?: string;
   qualifications?: string[];
   avatar?: string;
+  profileComplete?: boolean;
 }
 
 export interface PatientUser {
@@ -53,7 +55,7 @@ export interface PatientUser {
   abdmId?: string;
   age?: number;
   gender?: string;
-  location?: string;
+  location?: string | { city?: string; state?: string; pincode?: string };
   conditions?: string[];
   medications?: string[];
   allergies?: string[];
@@ -250,6 +252,7 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
         portalType: state.portalType,
+        user: state.user, // Also persist user so it's available immediately
       }),
     },
   ),

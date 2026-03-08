@@ -117,9 +117,15 @@ _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS trials (
     nct_id          TEXT PRIMARY KEY,
     data            JSONB NOT NULL,
+    search_vector   TSVECTOR,
     indexed_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_trials_search ON trials USING GIN (search_vector);
+CREATE INDEX IF NOT EXISTS idx_trials_data_status ON trials ((data->>'overall_status'));
+CREATE INDEX IF NOT EXISTS idx_trials_data_phase ON trials ((data->>'phase'));
+CREATE INDEX IF NOT EXISTS idx_trials_data_sponsor ON trials ((data->>'sponsor'));
+CREATE INDEX IF NOT EXISTS idx_trials_updated ON trials (updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS trial_matches (
     match_id        TEXT PRIMARY KEY,
@@ -178,6 +184,16 @@ CREATE TABLE IF NOT EXISTS etl_runs (
     trials_fetched  INT DEFAULT 0,
     trials_indexed  INT DEFAULT 0,
     trials_failed   INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS trial_summaries (
+    nct_id          TEXT PRIMARY KEY,
+    plain_summary   TEXT NOT NULL,
+    plain_summary_hi TEXT NOT NULL,
+    key_points      JSONB NOT NULL DEFAULT '[]',
+    risk_benefit    TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'fallback',
+    generated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 """
 

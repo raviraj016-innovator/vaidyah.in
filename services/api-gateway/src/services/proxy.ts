@@ -39,6 +39,12 @@ const SERVICE_ENDPOINTS: Record<string, ServiceEndpoint> = {
     timeoutMs: 20000,
     retries: 2,
   },
+  telemedicine: {
+    name: 'telemedicine-service',
+    baseUrl: config.services.telemedicineService,
+    timeoutMs: 30000,
+    retries: 1,
+  },
 };
 
 // ─── Circuit Breaker ────────────────────────────────────────────────────────

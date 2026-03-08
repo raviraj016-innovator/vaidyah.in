@@ -34,68 +34,6 @@ import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
 import api from '@/lib/api/client';
 
-// ---------------------------------------------------------------------------
-// Mock recent patients
-// ---------------------------------------------------------------------------
-
-const MOCK_RECENT_PATIENTS: (PatientInfo & { lastVisit: string })[] = [
-  {
-    id: 'p-001',
-    name: 'Priya Sharma',
-    age: 32,
-    gender: 'Female',
-    phone: '9876543210',
-    bloodGroup: 'A+',
-    allergies: ['Penicillin'],
-    chronicConditions: ['Asthma'],
-    lastVisit: '2026-02-28',
-  },
-  {
-    id: 'p-002',
-    name: 'Ram Kumar',
-    age: 65,
-    gender: 'Male',
-    phone: '9876543211',
-    bloodGroup: 'O+',
-    allergies: [],
-    chronicConditions: ['Hypertension', 'Type 2 Diabetes'],
-    lastVisit: '2026-02-27',
-  },
-  {
-    id: 'p-003',
-    name: 'Anita Devi',
-    age: 45,
-    gender: 'Female',
-    phone: '9876543212',
-    bloodGroup: 'B+',
-    allergies: ['Sulfa drugs'],
-    chronicConditions: [],
-    lastVisit: '2026-02-25',
-  },
-  {
-    id: 'p-004',
-    name: 'Suresh Patel',
-    age: 28,
-    gender: 'Male',
-    phone: '9876543213',
-    abdmId: '12-3456-7890-1234',
-    bloodGroup: 'AB+',
-    allergies: [],
-    chronicConditions: [],
-    lastVisit: '2026-02-24',
-  },
-  {
-    id: 'p-005',
-    name: 'Meena Kumari',
-    age: 55,
-    gender: 'Female',
-    phone: '9876543214',
-    bloodGroup: 'O-',
-    allergies: ['NSAIDs'],
-    chronicConditions: ['Rheumatoid Arthritis'],
-    lastVisit: '2026-02-20',
-  },
-];
 
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
@@ -138,14 +76,14 @@ export default function PatientIntakePage() {
   const [lookupResult, setLookupResult] = useState<PatientInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Fetch recent patients from API with mock fallback
-  const { data: recentPatients = MOCK_RECENT_PATIENTS } = useQuery({
+  // Fetch recent patients from API
+  const { data: recentPatients = [] } = useQuery<(PatientInfo & { lastVisit: string })[]>({
     queryKey: ['nurse', 'patients', 'recent'],
-    queryFn: fetchWithFallback(endpoints.patients.recent, MOCK_RECENT_PATIENTS),
+    queryFn: fetchWithFallback<(PatientInfo & { lastVisit: string })[]>(endpoints.patients.recent),
     staleTime: 60_000,
   });
 
-  // ABDM lookup — tries real API first, falls back to mock
+  // ABDM lookup — queries real API
   const handleAbdmLookup = useCallback(
     async (value: string) => {
       if (!value.trim()) {
@@ -166,25 +104,14 @@ export default function PatientIntakePage() {
           allergies: found.allergies, chronicConditions: found.chronicConditions,
         });
         message.success(language === 'hi' ? 'रोगी मिला!' : 'Patient found!');
-      } catch {
-        // Demo-mode fallback
-        if (value === '12-3456-7890-1234') {
-          const found = MOCK_RECENT_PATIENTS[3];
-          setLookupResult(found);
-          form.setFieldsValue({
-            name: found.name, age: found.age, gender: found.gender,
-            phone: found.phone, bloodGroup: found.bloodGroup,
-            allergies: found.allergies, chronicConditions: found.chronicConditions,
-          });
-          message.success(language === 'hi' ? 'रोगी मिला!' : 'Patient found!');
-        } else {
-          setLookupResult(null);
-          message.info(
-            language === 'hi'
-              ? 'कोई रिकॉर्ड नहीं मिला। कृपया मैन्युअल रूप से दर्ज करें।'
-              : 'No record found. Please enter details manually.',
-          );
-        }
+      } catch (err) {
+        console.error('ABDM lookup failed:', err);
+        setLookupResult(null);
+        message.error(
+          language === 'hi'
+            ? 'लुकअप विफल। कृपया मैन्युअल रूप से दर्ज करें।'
+            : 'Lookup failed. Please enter details manually.',
+        );
       } finally {
         setLookupLoading(false);
       }
@@ -236,7 +163,9 @@ export default function PatientIntakePage() {
       try {
         await api.post(endpoints.patients.create, patient);
         await api.post(endpoints.sessions.start, { patientId: patient.id, sessionId: newSessionId });
-      } catch { /* demo mode — local session store handles state */ }
+      } catch (err) {
+        console.error('Failed to create patient/session on backend:', err);
+      }
 
       setSubmitting(false);
       router.push(`/nurse/vitals-entry/${newSessionId}`);
@@ -321,12 +250,27 @@ export default function PatientIntakePage() {
                         message:
                           language === 'hi' ? 'नाम आवश्यक है' : 'Name is required',
                       },
+                      {
+                        pattern: /^[\p{L}\s.\-']+$/u,
+                        message:
+                          language === 'hi'
+                            ? 'केवल अक्षर, स्पेस, डॉट, हाइफ़न की अनुमति है'
+                            : 'Only letters, spaces, dots, hyphens allowed',
+                      },
+                      {
+                        max: 100,
+                        message:
+                          language === 'hi'
+                            ? 'नाम 100 अक्षरों से अधिक नहीं हो सकता'
+                            : 'Name cannot exceed 100 characters',
+                      },
                     ]}
                   >
                     <Input
                       placeholder={
                         language === 'hi' ? 'रोगी का नाम' : 'Patient name'
                       }
+                      maxLength={100}
                     />
                   </Form.Item>
                 </Col>

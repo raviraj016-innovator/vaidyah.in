@@ -28,16 +28,33 @@ logger = structlog.get_logger("voice.services.language_detector")
 # ---------------------------------------------------------------------------
 # Unicode block ranges used for script-based text language detection
 # ---------------------------------------------------------------------------
-_DEVANAGARI_RANGE = range(0x0900, 0x097F + 1)
-_BENGALI_RANGE = range(0x0980, 0x09FF + 1)
-_TAMIL_RANGE = range(0x0B80, 0x0BFF + 1)
-_TELUGU_RANGE = range(0x0C00, 0x0C7F + 1)
+# Unicode block ranges for all major Indian scripts
+_DEVANAGARI_RANGE = range(0x0900, 0x097F + 1)   # Hindi, Marathi, Sanskrit, Nepali, Konkani, Dogri, Bodo
+_BENGALI_RANGE = range(0x0980, 0x09FF + 1)       # Bengali, Assamese
+_GURMUKHI_RANGE = range(0x0A00, 0x0A7F + 1)      # Punjabi
+_GUJARATI_RANGE = range(0x0A80, 0x0AFF + 1)       # Gujarati
+_ORIYA_RANGE = range(0x0B00, 0x0B7F + 1)          # Odia
+_TAMIL_RANGE = range(0x0B80, 0x0BFF + 1)          # Tamil
+_TELUGU_RANGE = range(0x0C00, 0x0C7F + 1)         # Telugu
+_KANNADA_RANGE = range(0x0C80, 0x0CFF + 1)        # Kannada
+_MALAYALAM_RANGE = range(0x0D00, 0x0D7F + 1)      # Malayalam
+_OL_CHIKI_RANGE = range(0x1C50, 0x1C7F + 1)       # Santali
+_MEETEI_MAYEK_RANGE = range(0xABC0, 0xABFF + 1)   # Manipuri (Meitei)
+_ARABIC_RANGE = range(0x0600, 0x06FF + 1)          # Urdu, Sindhi, Kashmiri (Perso-Arabic)
 
 _SCRIPT_TO_LANGUAGE: dict[str, SupportedLanguage] = {
     "devanagari": SupportedLanguage.HINDI,
     "bengali": SupportedLanguage.BENGALI,
+    "gurmukhi": SupportedLanguage.PUNJABI,
+    "gujarati": SupportedLanguage.GUJARATI,
+    "oriya": SupportedLanguage.ODIA,
     "tamil": SupportedLanguage.TAMIL,
     "telugu": SupportedLanguage.TELUGU,
+    "kannada": SupportedLanguage.KANNADA,
+    "malayalam": SupportedLanguage.MALAYALAM,
+    "ol_chiki": SupportedLanguage.SANTALI,
+    "meetei_mayek": SupportedLanguage.MANIPURI,
+    "arabic": SupportedLanguage.URDU,
     "latin": SupportedLanguage.ENGLISH_IN,
 }
 
@@ -220,14 +237,11 @@ class LanguageDetectorService:
                 ),
             ]
 
-            # Add low-confidence entries for other supported languages
-            for lang in [
-                SupportedLanguage.BENGALI,
-                SupportedLanguage.TAMIL,
-                SupportedLanguage.TELUGU,
-                SupportedLanguage.MARATHI,
-            ]:
-                scores.append(LanguageScore(language=lang, confidence=0.05))
+            # Add low-confidence entries for all other supported languages
+            scored_langs = {SupportedLanguage.ENGLISH_IN, SupportedLanguage.HINDI}
+            for lang in SupportedLanguage:
+                if lang not in scored_langs:
+                    scores.append(LanguageScore(language=lang, confidence=0.02))
 
             return sorted(scores, key=lambda s: s.confidence, reverse=True)
 
@@ -305,11 +319,10 @@ class LanguageDetectorService:
             return self._default_scores(SupportedLanguage.ENGLISH_IN, 0.5)
 
         script_counts: dict[str, int] = {
-            "devanagari": 0,
-            "bengali": 0,
-            "tamil": 0,
-            "telugu": 0,
-            "latin": 0,
+            "devanagari": 0, "bengali": 0, "gurmukhi": 0, "gujarati": 0,
+            "oriya": 0, "tamil": 0, "telugu": 0, "kannada": 0,
+            "malayalam": 0, "ol_chiki": 0, "meetei_mayek": 0,
+            "arabic": 0, "latin": 0,
         }
         total_chars = 0
 
@@ -323,10 +336,26 @@ class LanguageDetectorService:
                 script_counts["devanagari"] += 1
             elif cp in _BENGALI_RANGE:
                 script_counts["bengali"] += 1
+            elif cp in _GURMUKHI_RANGE:
+                script_counts["gurmukhi"] += 1
+            elif cp in _GUJARATI_RANGE:
+                script_counts["gujarati"] += 1
+            elif cp in _ORIYA_RANGE:
+                script_counts["oriya"] += 1
             elif cp in _TAMIL_RANGE:
                 script_counts["tamil"] += 1
             elif cp in _TELUGU_RANGE:
                 script_counts["telugu"] += 1
+            elif cp in _KANNADA_RANGE:
+                script_counts["kannada"] += 1
+            elif cp in _MALAYALAM_RANGE:
+                script_counts["malayalam"] += 1
+            elif cp in _OL_CHIKI_RANGE:
+                script_counts["ol_chiki"] += 1
+            elif cp in _MEETEI_MAYEK_RANGE:
+                script_counts["meetei_mayek"] += 1
+            elif cp in _ARABIC_RANGE:
+                script_counts["arabic"] += 1
             elif char.isascii() and char.isalpha():
                 script_counts["latin"] += 1
 
@@ -339,17 +368,45 @@ class LanguageDetectorService:
             confidence = round(count / total_chars, 4) if total_chars > 0 else 0.0
             scores.append(LanguageScore(language=lang, confidence=confidence))
 
-        # Devanagari could be Hindi or Marathi -- add Marathi with slightly lower score
+        # Devanagari script is shared by Hindi, Marathi, Sanskrit, Nepali, Konkani, Dogri, Bodo
         devanagari_conf = script_counts["devanagari"] / max(total_chars, 1)
         if devanagari_conf > 0.1:
-            # Without lexical analysis, Marathi gets a slightly lower score than Hindi
-            # since Hindi is the more common Devanagari language in Indian healthcare
-            marathi_score = devanagari_conf * 0.7
+            # Without lexical analysis, assign decreasing scores to Devanagari languages
+            # Hindi is most common in Indian healthcare context
+            devanagari_langs = [
+                (SupportedLanguage.MARATHI, 0.7),
+                (SupportedLanguage.NEPALI, 0.3),
+                (SupportedLanguage.KONKANI, 0.2),
+                (SupportedLanguage.DOGRI, 0.15),
+                (SupportedLanguage.BODO, 0.1),
+                (SupportedLanguage.SANSKRIT, 0.05),
+            ]
+            for lang, factor in devanagari_langs:
+                scores.append(
+                    LanguageScore(
+                        language=lang,
+                        confidence=round(devanagari_conf * factor, 4),
+                    )
+                )
+
+        # Bengali script is shared by Bengali and Assamese
+        bengali_conf = script_counts["bengali"] / max(total_chars, 1)
+        if bengali_conf > 0.1:
             scores.append(
                 LanguageScore(
-                    language=SupportedLanguage.MARATHI,
-                    confidence=round(marathi_score, 4),
+                    language=SupportedLanguage.ASSAMESE,
+                    confidence=round(bengali_conf * 0.6, 4),
                 )
+            )
+
+        # Arabic script is shared by Urdu, Sindhi, and Kashmiri
+        arabic_conf = script_counts["arabic"] / max(total_chars, 1)
+        if arabic_conf > 0.1:
+            scores.append(
+                LanguageScore(language=SupportedLanguage.SINDHI, confidence=round(arabic_conf * 0.5, 4))
+            )
+            scores.append(
+                LanguageScore(language=SupportedLanguage.KASHMIRI, confidence=round(arabic_conf * 0.3, 4))
             )
 
         scores.sort(key=lambda s: s.confidence, reverse=True)

@@ -55,12 +55,15 @@ export const endpoints = {
     list: '/trials',
     search: '/trials/search',
     detail: (id: string) => `/trials/${id}`,
+    similar: (id: string) => `/trials/${id}/similar`,
     stats: '/trials/stats',
     syncStatus: '/trials/sync/status',
     triggerSync: '/trials/sync/trigger',
     matches: '/trials/matches',
     patientMatches: (patientId: string) => `/trials/matches/patient/${patientId}`,
     eligibility: (trialId: string, patientId: string) => `/trials/${trialId}/eligibility/${patientId}`,
+    csvUpload: '/trials/csv/upload',
+    csvStatus: '/trials/csv/status',
   },
 
   // Analytics
@@ -79,6 +82,7 @@ export const endpoints = {
     errorRates: '/system/error-rates',
     alerts: '/system/alerts',
     metrics: '/system/metrics',
+    aws: '/system/aws',
   },
 
   // Nurse - Sessions
@@ -111,9 +115,49 @@ export const endpoints = {
     markAllRead: '/notifications/read-all',
   },
 
+  // NLU (Natural Language Understanding)
+  nlu: {
+    extractSymptoms: '/nlu/extract-symptoms',
+    contradictions: '/nlu/contradictions',
+    followupQuestions: '/nlu/followup-questions',
+    translate: '/nlu/translate',
+    soapGenerate: '/nlu/soap-generate',
+    summarize: '/nlu/summarize',
+    medicalEntities: '/nlu/medical-entities',
+  },
+
+  // ABDM / Integrations
+  integration: {
+    abdmHealthRecord: (patientId: string) => `/integration/abdm/health-record/${patientId}`,
+    abdmVerify: '/integration/abdm/verify',
+    wearableSync: '/integration/wearables/sync',
+    whatsappSend: '/integration/whatsapp/send',
+  },
+
+  // Voice
+  voice: {
+    detectLanguage: '/voice/detect-language',
+    detectDialect: '/voice/detect-dialect',
+    transcribe: '/voice/transcribe',
+    synthesize: '/voice/synthesize',
+  },
+
   // Nurse Dashboard
   nurseDashboard: {
     stats: '/nurse/dashboard/stats',
+  },
+
+  // Telemedicine (Video Consultation)
+  telemedicine: {
+    createMeeting: '/telemedicine/meetings',
+    getMeeting: (id: string) => `/telemedicine/meetings/${id}`,
+    addAttendee: (id: string) => `/telemedicine/meetings/${id}/attendees`,
+    endMeeting: (id: string) => `/telemedicine/meetings/${id}`,
+    refreshToken: (id: string) => `/telemedicine/meetings/${id}/token`,
+    startTranscription: '/telemedicine/transcription/start',
+    stopTranscription: (id: string) => `/telemedicine/transcription/${id}/stop`,
+    getTranscript: (id: string) => `/telemedicine/transcription/${id}`,
+    facialAnalysis: '/telemedicine/facial-analysis',
   },
 } as const;
 

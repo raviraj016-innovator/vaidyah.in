@@ -16,6 +16,7 @@ import { useTrialStore } from '@/stores/trial-store';
 const NAV_ITEMS = [
   { key: '/patient/home', icon: <HomeOutlined />, label: 'Home' },
   { key: '/patient/trials', icon: <SearchOutlined />, label: 'Search Trials' },
+  { key: '/patient/health', icon: <HeartOutlined />, label: 'Health' },
   { key: '/patient/notifications', icon: <BellOutlined />, label: 'Notifications' },
   { key: '/patient/profile', icon: <UserOutlined />, label: 'Profile' },
 ];

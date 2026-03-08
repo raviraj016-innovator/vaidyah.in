@@ -42,10 +42,9 @@ export default function NurseDashboardPage() {
   const userName = user?.name ?? 'Nurse';
   const centerName = user?.centerName ?? 'Health Center';
 
-  const mockStats = { patientsSeen: 12, pendingTriage: 3, emergencies: 1 };
-  const { data: stats = mockStats } = useQuery({
+  const { data: stats } = useQuery({
     queryKey: ['nurse', 'dashboard', 'stats'],
-    queryFn: fetchWithFallback(endpoints.nurseDashboard.stats, mockStats),
+    queryFn: fetchWithFallback<{ patientsSeen: number; pendingTriage: number; emergencies: number }>(endpoints.nurseDashboard.stats),
     staleTime: 30_000,
   });
 
@@ -167,7 +166,7 @@ export default function NurseDashboardPage() {
         <Col xs={24} sm={8}>
           <StatsCard
             title={language === 'hi' ? 'रोगी देखे गए' : 'Patients Seen'}
-            value={stats.patientsSeen}
+            value={stats?.patientsSeen ?? 0}
             icon={<TeamOutlined />}
             trend={8}
             trendLabel={language === 'hi' ? 'कल से' : 'vs yesterday'}
@@ -178,7 +177,7 @@ export default function NurseDashboardPage() {
         <Col xs={24} sm={8}>
           <StatsCard
             title={language === 'hi' ? 'लंबित ट्राइएज' : 'Pending Triage'}
-            value={stats.pendingTriage}
+            value={stats?.pendingTriage ?? 0}
             icon={<ClockCircleOutlined />}
             iconColor="#d97706"
             iconBgColor="#fffbeb"
@@ -187,7 +186,7 @@ export default function NurseDashboardPage() {
         <Col xs={24} sm={8}>
           <StatsCard
             title={language === 'hi' ? 'आपातकाल' : 'Emergencies'}
-            value={stats.emergencies}
+            value={stats?.emergencies ?? 0}
             icon={<WarningOutlined />}
             iconColor="#dc2626"
             iconBgColor="#fef2f2"
@@ -195,8 +194,8 @@ export default function NurseDashboardPage() {
         </Col>
       </Row>
 
-      {/* Active emergency alert (mock) */}
-      {stats.emergencies > 0 && (
+      {/* Active emergency alert */}
+      {(stats?.emergencies ?? 0) > 0 && (
         <Alert
           message={
             language === 'hi'
@@ -211,7 +210,7 @@ export default function NurseDashboardPage() {
           type="error"
           showIcon
           action={
-            <Link href="/nurse/emergency-alert/session-mock-001">
+            <Link href="/nurse/emergency-alert/latest">
               <Button size="small" danger>
                 {language === 'hi' ? 'देखें' : 'View'}
               </Button>

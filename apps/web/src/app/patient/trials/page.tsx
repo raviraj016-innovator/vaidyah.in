@@ -23,92 +23,6 @@ import { PageHeader } from '@/components/ui/page-header';
 import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
 
-// ---------------------------------------------------------------------------
-// Mock trial search results
-// ---------------------------------------------------------------------------
-
-const MOCK_TRIALS: ClinicalTrial[] = [
-  {
-    id: 'trial-001',
-    nctId: 'NCT05678901',
-    title: 'Evaluating Novel Oral Diabetes Management in Type 2 Diabetics',
-    titleHi: 'टाइप 2 मधुमेह रोगियों में नई मौखिक मधुमेह प्रबंधन का मूल्यांकन',
-    summary:
-      'A Phase 3 randomized controlled trial evaluating a novel GLP-1 receptor agonist for glycemic control.',
-    summaryHi:
-      'ग्लाइसेमिक नियंत्रण के लिए एक नए GLP-1 रिसेप्टर एगोनिस्ट का मूल्यांकन करने वाला चरण 3 यादृच्छिक नियंत्रित परीक्षण।',
-    phase: 'Phase 3',
-    status: 'Recruiting',
-    conditions: ['Type 2 Diabetes', 'Hyperglycemia'],
-    sponsor: 'National Institute of Diabetes Research',
-    locations: [{ facility: 'AIIMS New Delhi', city: 'New Delhi', state: 'Delhi', distance: 5 }],
-  },
-  {
-    id: 'trial-002',
-    nctId: 'NCT05678902',
-    title: 'Ayurvedic Formulation for Hypertension Management',
-    titleHi: 'उच्च रक्तचाप प्रबंधन के लिए आयुर्वेदिक फॉर्मूलेशन',
-    summary:
-      'Studying the effectiveness of a standardized Ayurvedic compound in managing Stage 1 hypertension.',
-    phase: 'Phase 2',
-    status: 'Recruiting',
-    conditions: ['Hypertension', 'Cardiovascular'],
-    sponsor: 'AYUSH Ministry',
-    locations: [{ facility: 'CCRAS Pune', city: 'Pune', state: 'Maharashtra', distance: 12 }],
-  },
-  {
-    id: 'trial-003',
-    nctId: 'NCT05678903',
-    title: 'mHealth Intervention for Rural Diabetes Self-Management',
-    titleHi: 'ग्रामीण मधुमेह स्व-प्रबंधन के लिए mHealth हस्तक्षेप',
-    summary:
-      'Evaluating a mobile health platform for improving diabetes self-management in rural populations.',
-    phase: 'Phase 3',
-    status: 'Enrolling by Invitation',
-    conditions: ['Type 2 Diabetes', 'Digital Health'],
-    sponsor: 'Indian Council of Medical Research',
-    locations: [{ facility: 'ICMR Regional Centre', city: 'Raipur', state: 'Chhattisgarh', distance: 8 }],
-  },
-  {
-    id: 'trial-004',
-    nctId: 'NCT05678904',
-    title: 'Yoga and Meditation for Stress-Related Hypertension',
-    titleHi: 'तनाव-संबंधित उच्च रक्तचाप के लिए योग और ध्यान',
-    summary:
-      'Evaluating structured yoga and meditation programs as complementary therapy for stress-related hypertension.',
-    phase: 'Phase 2',
-    status: 'Recruiting',
-    conditions: ['Hypertension', 'Stress'],
-    sponsor: 'NIMHANS Bangalore',
-    locations: [{ facility: 'NIMHANS', city: 'Bangalore', state: 'Karnataka', distance: 3 }],
-  },
-  {
-    id: 'trial-005',
-    nctId: 'NCT05678905',
-    title: 'Tuberculosis Vaccine Booster Trial in Adults',
-    titleHi: 'वयस्कों में तपेदिक वैक्सीन बूस्टर ट्रायल',
-    summary:
-      'Phase 2b trial of a novel TB vaccine booster candidate in BCG-vaccinated adults to evaluate immunogenicity.',
-    phase: 'Phase 2',
-    status: 'Recruiting',
-    conditions: ['Tuberculosis', 'Infectious Disease'],
-    sponsor: 'Serum Institute of India',
-    locations: [{ facility: 'KEM Hospital', city: 'Mumbai', state: 'Maharashtra', distance: 15 }],
-  },
-  {
-    id: 'trial-006',
-    nctId: 'NCT05678906',
-    title: 'AI-Assisted Early Detection of Diabetic Retinopathy',
-    titleHi: 'डायबिटिक रेटिनोपैथी की AI-सहायता प्रारंभिक पहचान',
-    summary:
-      'A multi-center study assessing AI-based fundus image analysis for early detection of diabetic retinopathy in primary healthcare settings.',
-    phase: 'Phase 4',
-    status: 'Active, not recruiting',
-    conditions: ['Diabetic Retinopathy', 'Type 2 Diabetes'],
-    sponsor: 'Sankara Nethralaya',
-    locations: [{ facility: 'Sankara Nethralaya', city: 'Chennai', state: 'Tamil Nadu', distance: 7 }],
-  },
-];
 
 const CONDITION_OPTIONS = [
   { label: 'Diabetes', value: 'Diabetes' },
@@ -159,7 +73,7 @@ export default function TrialsSearchPage() {
 
   const { data: fetchedTrials } = useQuery({
     queryKey: ['patient', 'trials', 'list'],
-    queryFn: fetchWithFallback<ClinicalTrial[]>(endpoints.trials.list, MOCK_TRIALS),
+    queryFn: fetchWithFallback<ClinicalTrial[]>(endpoints.trials.list),
     staleTime: 60_000,
   });
 
@@ -167,7 +81,7 @@ export default function TrialsSearchPage() {
     if (fetchedTrials) setSearchResults(fetchedTrials);
   }, [fetchedTrials, setSearchResults]);
 
-  const allTrials = searchResults.length > 0 ? searchResults : (fetchedTrials ?? MOCK_TRIALS);
+  const allTrials = searchResults.length > 0 ? searchResults : (fetchedTrials ?? []);
 
   // Filtered results
   const filtered = useMemo(() => {

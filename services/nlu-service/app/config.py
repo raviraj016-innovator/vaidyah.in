@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # ---------- AWS Bedrock ----------
     bedrock_model_id: str = Field(
-        default="anthropic.claude-3-sonnet-20240229-v1:0",
+        default="anthropic.claude-3-haiku-20240307-v1:0",
         alias="BEDROCK_MODEL_ID",
     )
     bedrock_max_tokens: int = Field(default=4096, alias="BEDROCK_MAX_TOKENS")
@@ -60,20 +60,9 @@ class Settings(BaseSettings):
         default=0.7, alias="COMPREHEND_MEDICAL_CONFIDENCE_THRESHOLD"
     )
 
-    # ---------- SageMaker Endpoints ----------
-    sagemaker_symptom_endpoint: Optional[str] = Field(
-        default=None, alias="SAGEMAKER_SYMPTOM_ENDPOINT"
-    )
-    sagemaker_severity_endpoint: Optional[str] = Field(
-        default=None, alias="SAGEMAKER_SEVERITY_ENDPOINT"
-    )
-    sagemaker_translation_endpoint: Optional[str] = Field(
-        default=None, alias="SAGEMAKER_TRANSLATION_ENDPOINT"
-    )
-
     # ---------- Authentication ----------
     jwt_secret_key: str = Field(
-        default="dev-secret-do-not-use-in-production", alias="JWT_SECRET_KEY"
+        default="", alias="JWT_SECRET_KEY"
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_issuer: str = Field(default="vaidyah-auth", alias="JWT_ISSUER")

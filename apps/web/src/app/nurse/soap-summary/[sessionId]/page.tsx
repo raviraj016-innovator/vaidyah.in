@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   Card,
   Typography,
@@ -27,79 +28,11 @@ import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, SOAPNote, SOAPStatus } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { SOAPDisplay } from '@/components/data-display/soap-display';
+import { fetchWithFallback } from '@/lib/api/query-helpers';
+import api from '@/lib/api/client';
 
 const { TextArea } = Input;
 
-// ---------------------------------------------------------------------------
-// Mock SOAP data
-// ---------------------------------------------------------------------------
-
-const MOCK_SOAP: SOAPNote = {
-  subjective: {
-    chiefComplaint: 'High fever for 3 days with body aches',
-    historyOfPresentIllness:
-      'Patient reports persistent fever of 101-102\u00b0F for the past 3 days. Fever is intermittent, peaks in the evening. Associated with generalized body aches, fatigue, and mild headache. Took paracetamol 500mg which provides temporary relief for 4-5 hours. No cough, cold, sore throat, or urinary symptoms.',
-    reviewOfSystems: [
-      'Constitutional: Fever, fatigue, malaise',
-      'MSK: Generalized body aches, joint stiffness',
-      'Neuro: Mild headache, no neck rigidity',
-      'GI: Reduced appetite, no nausea/vomiting/diarrhea',
-    ],
-    patientNarrative:
-      'Patient appeared anxious about the persistent nature of fever. Prosody analysis indicates moderate anxiety (60%) and mild frustration (50%).',
-  },
-  objective: {
-    vitalSigns:
-      'Temp: 101.8\u00b0F, BP: 118/76, HR: 92, RR: 18, SpO2: 97%, Pain: 5/10',
-    physicalExamination:
-      'Alert and oriented. Mild pallor noted. No lymphadenopathy. Chest clear. Abdomen soft, non-tender. No rash or petechiae.',
-    observations: [
-      'Mild dehydration - dry mucous membranes',
-      'Warm to touch',
-      'No signs of meningismus',
-      'Petechiae absent - rules out hemorrhagic complications',
-    ],
-  },
-  assessment: {
-    primaryDiagnosis: 'Pyrexia of Unknown Origin (PUO)',
-    differentialDiagnoses: [
-      'Dengue fever',
-      'Viral fever',
-      'Malaria',
-      'Urinary tract infection',
-      'Typhoid fever',
-    ],
-    severity: 'Moderate',
-    clinicalReasoning:
-      'Persistent fever >3 days with body aches in an endemic area warrants investigation for dengue and malaria. Absence of cough/cold reduces likelihood of upper respiratory infection. No localizing signs found on examination.',
-  },
-  plan: {
-    medications: [
-      'Paracetamol 500mg TDS for fever',
-      'ORS packets - 2-3 liters per day',
-      'Domperidone 10mg if nausea develops',
-    ],
-    investigations: [
-      'CBC with differential',
-      'Dengue NS1 Antigen',
-      'Malarial Parasite (MP) - Thick and thin smear',
-      'Widal test if fever persists >5 days',
-      'Urine routine',
-    ],
-    referrals: [
-      'Medical Officer - PHC for evaluation',
-      'Follow-up if fever persists >5 days or new symptoms develop',
-    ],
-    followUp: 'Review in 48 hours with lab reports. Earlier if condition worsens.',
-    patientEducation: [
-      'Adequate fluid intake (3-4 liters/day)',
-      'Complete bed rest',
-      'Monitor temperature every 6 hours',
-      'Watch for warning signs: bleeding, severe abdominal pain, persistent vomiting',
-      'Use mosquito net and repellent',
-    ],
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -124,51 +57,38 @@ export default function SOAPSummaryPage() {
 
   const [form] = Form.useForm();
 
-  // Apply mock to store for downstream usage when no soap note exists
+  // Fetch SOAP note from API
+  const { data: apiSoapData } = useQuery({
+    queryKey: ['nurse', 'soap', sessionId],
+    queryFn: fetchWithFallback<{ success: boolean; data: any }>(
+      `/sessions/${sessionId}/soap`,
+    ),
+    staleTime: 60_000,
+  });
+
+  // Apply API data to store
   useEffect(() => {
-    if (!storeSoap) {
-      setSoapNote(MOCK_SOAP);
+    const apiSoap = apiSoapData?.data;
+    if (apiSoap && !storeSoap) {
+      const parsed: SOAPNote = {
+        subjective: typeof apiSoap.subjective === 'string' ? JSON.parse(apiSoap.subjective) : apiSoap.subjective,
+        objective: typeof apiSoap.objective === 'string' ? JSON.parse(apiSoap.objective) : apiSoap.objective,
+        assessment: typeof apiSoap.assessment === 'string' ? JSON.parse(apiSoap.assessment) : apiSoap.assessment,
+        plan: typeof apiSoap.plan === 'string' ? JSON.parse(apiSoap.plan) : apiSoap.plan,
+      };
+      setSoapNote(parsed);
+      if (apiSoap.is_reviewed) setSoapStatus('reviewed');
     }
-  }, [storeSoap, setSoapNote]);
+  }, [apiSoapData, storeSoap, setSoapNote, setSoapStatus]);
 
-  const soapNote = storeSoap ?? MOCK_SOAP;
+  const soapNote = storeSoap;
 
-  if (!patient) {
-    return (
-      <Empty
-        description="No active session. Please start a consultation first."
-        style={{ marginTop: 80 }}
-      >
-        <Button type="primary" onClick={() => router.push('/nurse/patient-intake')}>
-          Start Consultation
-        </Button>
-      </Empty>
-    );
-  }
-
-  const handleToggleEdit = () => {
-    if (!isEditing) {
-      // Populate form with current data
-      form.setFieldsValue({
-        chiefComplaint: soapNote.subjective.chiefComplaint,
-        historyOfPresentIllness: soapNote.subjective.historyOfPresentIllness,
-        reviewOfSystems: soapNote.subjective.reviewOfSystems.join('\n'),
-        vitalSigns: soapNote.objective.vitalSigns,
-        physicalExamination: soapNote.objective.physicalExamination,
-        observations: soapNote.objective.observations.join('\n'),
-        primaryDiagnosis: soapNote.assessment.primaryDiagnosis,
-        differentialDiagnoses: soapNote.assessment.differentialDiagnoses.join('\n'),
-        severity: soapNote.assessment.severity,
-        clinicalReasoning: soapNote.assessment.clinicalReasoning,
-        medications: soapNote.plan.medications.join('\n'),
-        investigations: soapNote.plan.investigations.join('\n'),
-        referrals: soapNote.plan.referrals.join('\n'),
-        followUp: soapNote.plan.followUp,
-        patientEducation: soapNote.plan.patientEducation.join('\n'),
-      });
-    }
-    setIsEditing(!isEditing);
-  };
+  const saveSoapMutation = useMutation({
+    mutationFn: async (updated: SOAPNote) => {
+      const { data } = await api.post(`/sessions/${sessionId}/soap`, updated);
+      return data;
+    },
+  });
 
   const handleSave = useCallback(
     (values: Record<string, string>) => {
@@ -178,7 +98,7 @@ export default function SOAPSummaryPage() {
           chiefComplaint: values.chiefComplaint,
           historyOfPresentIllness: values.historyOfPresentIllness,
           reviewOfSystems: values.reviewOfSystems.split('\n').filter(Boolean),
-          patientNarrative: soapNote.subjective.patientNarrative,
+          patientNarrative: soapNote?.subjective.patientNarrative ?? '',
         },
         objective: {
           vitalSigns: values.vitalSigns,
@@ -202,18 +122,69 @@ export default function SOAPSummaryPage() {
         },
       };
 
-      setTimeout(() => {
-        setSoapNote(updated);
-        setSaving(false);
-        setIsEditing(false);
-        setSoapStatus('reviewed');
-        message.success(
-          language === 'hi' ? 'SOAP नोट अपडेट किया गया' : 'SOAP note updated',
-        );
-      }, 600);
+      saveSoapMutation.mutate(updated, {
+        onSettled: () => {
+          setSoapNote(updated);
+          setSaving(false);
+          setIsEditing(false);
+          setSoapStatus('reviewed');
+          message.success(
+            language === 'hi' ? 'SOAP नोट अपडेट किया गया' : 'SOAP note updated',
+          );
+        },
+      });
     },
-    [setSoapNote, setSoapStatus, soapNote, language, message],
+    [setSoapNote, setSoapStatus, soapNote, language, message, saveSoapMutation],
   );
+
+  if (!patient) {
+    return (
+      <Empty
+        description="No active session. Please start a consultation first."
+        style={{ marginTop: 80 }}
+      >
+        <Button type="primary" onClick={() => router.push('/nurse/patient-intake')}>
+          Start Consultation
+        </Button>
+      </Empty>
+    );
+  }
+
+  if (!soapNote) {
+    return (
+      <Empty
+        description="SOAP note not available. The API may be unreachable."
+        style={{ marginTop: 80 }}
+      >
+        <Button type="primary" onClick={() => router.push('/nurse/dashboard')}>
+          Back to Dashboard
+        </Button>
+      </Empty>
+    );
+  }
+
+  const handleToggleEdit = () => {
+    if (!isEditing) {
+      form.setFieldsValue({
+        chiefComplaint: soapNote.subjective.chiefComplaint,
+        historyOfPresentIllness: soapNote.subjective.historyOfPresentIllness,
+        reviewOfSystems: soapNote.subjective.reviewOfSystems.join('\n'),
+        vitalSigns: soapNote.objective.vitalSigns,
+        physicalExamination: soapNote.objective.physicalExamination,
+        observations: soapNote.objective.observations.join('\n'),
+        primaryDiagnosis: soapNote.assessment.primaryDiagnosis,
+        differentialDiagnoses: soapNote.assessment.differentialDiagnoses.join('\n'),
+        severity: soapNote.assessment.severity,
+        clinicalReasoning: soapNote.assessment.clinicalReasoning,
+        medications: soapNote.plan.medications.join('\n'),
+        investigations: soapNote.plan.investigations.join('\n'),
+        referrals: soapNote.plan.referrals.join('\n'),
+        followUp: soapNote.plan.followUp,
+        patientEducation: soapNote.plan.patientEducation.join('\n'),
+      });
+    }
+    setIsEditing(!isEditing);
+  };
 
   const handleFinalize = () => {
     modal.confirm({
@@ -226,7 +197,9 @@ export default function SOAPSummaryPage() {
       okText: language === 'hi' ? 'अंतिम करें' : 'Finalize',
       cancelText: language === 'hi' ? 'रद्द करें' : 'Cancel',
       okType: 'primary',
-      onOk: () => {
+      onOk: async () => {
+        // Complete session via API
+        try { await api.post(`/sessions/${sessionId}/complete`); } catch (err) { console.error('Failed to complete session:', err); throw err; }
         setSoapStatus('finalized');
         completeSession();
         message.success(

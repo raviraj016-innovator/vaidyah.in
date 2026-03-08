@@ -31,26 +31,14 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     cors_origins: list[str] = Field(default=["http://localhost:3000", "http://localhost:3001"])
 
-    # ---------- OpenSearch ----------
-    opensearch_endpoint: str = "https://localhost:9200"
-    opensearch_username: str = Field(default="admin", alias="OPENSEARCH_USERNAME")
-    opensearch_password: str = Field(default="admin", alias="OPENSEARCH_PASSWORD")
-    opensearch_index: str = "clinical_trials"
-    opensearch_use_ssl: bool = True
-    opensearch_verify_certs: bool = True
-
-    # ---------- PostgreSQL ----------
+    # ---------- PostgreSQL (also used for full-text search, replaces OpenSearch) ----------
     database_url: str = "postgresql+asyncpg://localhost:5432/vaidyah_trials"
     database_pool_min: int = 2
     database_pool_max: int = 10
 
-    # ---------- AWS SageMaker ----------
-    sagemaker_matching_endpoint: Optional[str] = None
-    sagemaker_region: str = "ap-south-1"
-
     # ---------- AWS Bedrock ----------
     bedrock_region: str = "ap-south-1"
-    bedrock_model_id: str = "anthropic.claude-3-sonnet-20240229-v1:0"
+    bedrock_model_id: str = "anthropic.claude-3-haiku-20240307-v1:0"
     bedrock_max_tokens: int = 2048
     bedrock_temperature: float = 0.3
 
@@ -62,6 +50,16 @@ class Settings(BaseSettings):
     sns_topic_arn: Optional[str] = None
     sns_region: str = "ap-south-1"
 
+    # ---------- AWS SES ----------
+    ses_region: str = "ap-south-1"
+    ses_sender_email: Optional[str] = None
+
+    # ---------- Notification controls ----------
+    notification_quiet_hours_start: int = 22  # 10 PM IST
+    notification_quiet_hours_end: int = 7     # 7 AM IST
+    notification_digest_enabled: bool = True
+    notification_max_per_day: int = 10
+
     # ---------- ClinicalTrials.gov ----------
     ctgov_api_base: str = "https://clinicaltrials.gov/api/v2"
     ctgov_rate_limit_per_second: float = 3.0
@@ -70,7 +68,7 @@ class Settings(BaseSettings):
 
     # ---------- JWT / Auth ----------
     jwt_secret: str = Field(
-        default="dev-secret-do-not-use-in-production", alias="JWT_SECRET"
+        default="", alias="JWT_SECRET"
     )
     jwt_algorithm: str = "HS256"
     jwt_audience: str = "vaidyah"
@@ -93,16 +91,6 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "database_url must not use the default value in production. "
                     "Set the DATABASE_URL environment variable."
-                )
-            if self.opensearch_username == "admin" or self.opensearch_password == "admin":
-                raise ValueError(
-                    "OPENSEARCH_USERNAME and OPENSEARCH_PASSWORD must be set "
-                    "explicitly in production."
-                )
-            if not self.opensearch_verify_certs:
-                raise ValueError(
-                    "opensearch_verify_certs must be True in production. "
-                    "Disabling certificate verification exposes medical data to MitM attacks."
                 )
         return self
 

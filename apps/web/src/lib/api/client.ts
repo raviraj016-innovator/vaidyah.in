@@ -23,15 +23,22 @@ function getToken(): string | null {
   return useAuthStore.getState().token;
 }
 
-// Request interceptor: attach token
+// Request interceptor: attach token to both api and authApi
+const attachTokenInterceptor = (config: InternalAxiosRequestConfig) => {
+  const token = getToken();
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+};
+
 api.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = getToken();
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
+  attachTokenInterceptor,
+  (error: AxiosError) => Promise.reject(error),
+);
+
+authApi.interceptors.request.use(
+  attachTokenInterceptor,
   (error: AxiosError) => Promise.reject(error),
 );
 
@@ -48,9 +55,20 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
-api.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
+function redirectToLogin() {
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname;
+    if (!path.includes('/login')) {
+      if (path.startsWith('/admin')) window.location.href = '/admin/login';
+      else if (path.startsWith('/nurse')) window.location.href = '/nurse/login';
+      else if (path.startsWith('/patient')) window.location.href = '/patient/login';
+      else window.location.href = '/';
+    }
+  }
+}
+
+function createRefreshInterceptor(axiosInstance: typeof api) {
+  return async (error: AxiosError) => {
     if (!error.config) return Promise.reject(error);
 
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
@@ -63,7 +81,7 @@ api.interceptors.response.use(
               if (originalRequest.headers) {
                 originalRequest.headers.Authorization = `Bearer ${token}`;
               }
-              resolve(api(originalRequest));
+              resolve(axiosInstance(originalRequest));
             },
             reject,
           });
@@ -75,11 +93,15 @@ api.interceptors.response.use(
 
       try {
         const refreshToken = useAuthStore.getState().refreshToken;
-        if (!refreshToken) throw new Error('No refresh token');
+        if (!refreshToken) {
+          processQueue(new Error('No refresh token'), null);
+          useAuthStore.getState().logout();
+          redirectToLogin();
+          return Promise.reject(error);
+        }
 
         const { data } = await authApi.post('/token/refresh', { refresh_token: refreshToken });
 
-        // Update Zustand store (single source of truth — persist middleware handles localStorage)
         const newToken = data.access_token;
         const newRefresh = data.refresh_token ?? refreshToken;
         useAuthStore.setState({ token: newToken, refreshToken: newRefresh });
@@ -89,18 +111,11 @@ api.interceptors.response.use(
         if (originalRequest.headers) {
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
         }
-        return api(originalRequest);
+        return axiosInstance(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        // Clear both Zustand persist AND localStorage via store logout
         useAuthStore.getState().logout();
-        if (typeof window !== 'undefined') {
-          const path = window.location.pathname;
-          if (path.startsWith('/admin')) window.location.href = '/admin/login';
-          else if (path.startsWith('/nurse')) window.location.href = '/nurse/login';
-          else if (path.startsWith('/patient')) window.location.href = '/patient/login';
-          else window.location.href = '/';
-        }
+        redirectToLogin();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
@@ -108,7 +123,10 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  },
-);
+  };
+}
+
+api.interceptors.response.use((response) => response, createRefreshInterceptor(api));
+authApi.interceptors.response.use((response) => response, createRefreshInterceptor(authApi));
 
 export default api;
