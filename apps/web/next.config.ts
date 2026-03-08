@@ -25,14 +25,16 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
+    const apiUrl = process.env.API_GATEWAY_URL;
+    if (!apiUrl) return [];
     return [
       {
         source: '/api/v1/:path*',
-        destination: `${process.env.API_GATEWAY_URL || 'http://localhost:4000'}/api/v1/:path*`,
+        destination: `${apiUrl}/api/v1/:path*`,
       },
       {
         source: '/auth/:path*',
-        destination: `${process.env.AUTH_SERVICE_URL || 'http://localhost:4000'}/auth/:path*`,
+        destination: `${process.env.AUTH_SERVICE_URL || apiUrl}/auth/:path*`,
       },
     ];
   },

@@ -241,7 +241,7 @@ export default function TelemedicinePage() {
       );
 
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
-        track.detach();
+        track.detach().forEach((el) => el.remove());
       });
 
       // Local camera track published -- attach to PiP

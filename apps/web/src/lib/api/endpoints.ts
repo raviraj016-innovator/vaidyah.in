@@ -64,6 +64,7 @@ export const endpoints = {
     eligibility: (trialId: string, patientId: string) => `/trials/${trialId}/eligibility/${patientId}`,
     csvUpload: '/trials/csv/upload',
     csvStatus: '/trials/csv/status',
+    expressInterest: (trialId: string) => `/trials/${trialId}/interest`,
   },
 
   // Analytics

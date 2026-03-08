@@ -232,9 +232,12 @@ class TrialPgSearchClient:
         else:
             order_sql = f"{rank_expr} DESC, data->>'last_update_posted' DESC NULLS LAST"
 
+        # Snapshot filter params before adding pagination (used by facets/count)
+        filter_params = list(params)
+
         # Count total
         count_sql = f"SELECT count(*) FROM trials WHERE {where_sql}"
-        total = await fetch_val(count_sql, *params)
+        total = await fetch_val(count_sql, *filter_params)
 
         # Paginated results (parameterized LIMIT/OFFSET to prevent injection)
         offset = (request.page - 1) * request.page_size
@@ -274,8 +277,8 @@ class TrialPgSearchClient:
                 score=float(row["score"]) if row["score"] else None,
             ))
 
-        # Facets (simple aggregation queries)
-        facets = await self._build_facets(where_sql, params)
+        # Facets (simple aggregation queries) — use filter_params (without LIMIT/OFFSET)
+        facets = await self._build_facets(where_sql, filter_params)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
 

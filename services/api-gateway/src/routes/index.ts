@@ -499,6 +499,17 @@ trialsRouter.post(
   }),
 );
 
+// Express interest in a trial
+trialsRouter.post(
+  '/:id/interest',
+  validate(uuidOrNctParam('id')),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const upstream = await forwardRequest('trial', req, `/api/v1/trials/${id}/interest`);
+    res.status(upstream.statusCode).json(upstream.body);
+  }),
+);
+
 // CSV import status
 trialsRouter.get(
   '/csv/status',
