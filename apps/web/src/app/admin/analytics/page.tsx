@@ -148,7 +148,7 @@ export default function AnalyticsPage() {
             fontWeight: 600,
           }}
         >
-          {val.toFixed(1)}%
+          {(val ?? 0).toFixed(1)}%
         </Text>
       ),
       sorter: (a, b) => a.accuracy - b.accuracy,

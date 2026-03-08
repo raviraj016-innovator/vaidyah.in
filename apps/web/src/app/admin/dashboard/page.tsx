@@ -254,7 +254,7 @@ export default function AdminDashboardPage() {
                         color={statusColor[center.status]}
                         style={{ fontSize: 11 }}
                       >
-                        {center.status.toUpperCase()}
+                        {(center.status ?? '').toUpperCase()}
                       </Tag>
                     }
                   />

@@ -243,7 +243,7 @@ export function ConsultationDrawer({ open, onClose, consultation }: Consultation
     <Drawer
       title="Consultation Details"
       placement="right"
-      width={640}
+      width={typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : 640}
       open={open}
       onClose={onClose}
     >

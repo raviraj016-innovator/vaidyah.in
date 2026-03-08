@@ -42,6 +42,7 @@ import { useSessionStore, TranscriptEntry } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import api from '@/lib/api/client';
+import VoiceBot from '@/components/voice-bot/VoiceBot';
 
 // ---------------------------------------------------------------------------
 // Symptom taxonomy for manual entry
@@ -243,6 +244,7 @@ function ConsultationPageInner() {
 
   const [isPaused, setIsPaused] = useState(false);
   const [triageLoading, setTriageLoading] = useState(false);
+  const [voiceBotOpen, setVoiceBotOpen] = useState(false);
 
   const currentTranscript = transcript;
 
@@ -520,9 +522,19 @@ function ConsultationPageInner() {
                   ? 'रिकॉर्डिंग बंद'
                   : 'Not Recording'}
             </Tag>
+            <Button
+              type="primary"
+              icon={<SoundOutlined />}
+              onClick={() => setVoiceBotOpen(true)}
+              style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+            >
+              {language === 'hi' ? 'वॉइस मूल्यांकन' : 'Voice Assessment'}
+            </Button>
           </Space>
         }
       />
+
+      <VoiceBot open={voiceBotOpen} onClose={() => setVoiceBotOpen(false)} />
 
       <Row gutter={[16, 16]}>
         {/* Left Panel (60%) */}
@@ -1024,7 +1036,7 @@ function ConsultationPageInner() {
                       message={
                         <Space>
                           <Tag color={CONTRADICTION_COLORS[c.severity]} style={{ fontSize: 10 }}>
-                            {c.severity.toUpperCase()}
+                            {(c.severity ?? '').toUpperCase()}
                           </Tag>
                           <Typography.Text style={{ fontSize: 12 }}>
                             {language === 'hi' && c.descriptionHi ? c.descriptionHi : c.description}

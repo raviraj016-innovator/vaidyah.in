@@ -244,7 +244,7 @@ export default function CentersPage() {
         };
         return (
           <Tag color={colorMap[status] ?? 'default'}>
-            {status.charAt(0).toUpperCase() + status.slice(1)}
+            {status ? status.charAt(0).toUpperCase() + status.slice(1) : ''}
           </Tag>
         );
       },
@@ -294,7 +294,7 @@ export default function CentersPage() {
         return (
           <Space size={4}>
             <WifiOutlined style={{ color: colorMap[conn] === 'green' ? '#16a34a' : colorMap[conn] === 'orange' ? '#d97706' : '#dc2626' }} />
-            <Tag color={colorMap[conn]}>{conn.charAt(0).toUpperCase() + conn.slice(1)}</Tag>
+            <Tag color={colorMap[conn]}>{conn ? conn.charAt(0).toUpperCase() + conn.slice(1) : ''}</Tag>
           </Space>
         );
       },

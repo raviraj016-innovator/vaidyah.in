@@ -11,18 +11,28 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, extra }: PageHeaderProps) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 28 }}>
-      <div style={{ minWidth: 0 }}>
-        <Typography.Title level={3} style={{ margin: 0, letterSpacing: '-0.02em', fontWeight: 700 }}>
-          {title}
-        </Typography.Title>
-        {subtitle && (
-          <Typography.Text type="secondary" style={{ fontSize: 14, marginTop: 2, display: 'block' }}>
-            {subtitle}
-          </Typography.Text>
-        )}
+    <>
+      <style>{`
+        .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+        .page-header-title { margin: 0 !important; letter-spacing: -0.02em; font-weight: 700 !important; }
+        @media (max-width: 480px) {
+          .page-header { margin-bottom: 20px; gap: 8px; }
+          .page-header-title { font-size: 20px !important; }
+        }
+      `}</style>
+      <div className="page-header">
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <Typography.Title level={3} className="page-header-title">
+            {title}
+          </Typography.Title>
+          {subtitle && (
+            <Typography.Text type="secondary" style={{ fontSize: 14, marginTop: 2, display: 'block' }}>
+              {subtitle}
+            </Typography.Text>
+          )}
+        </div>
+        {extra && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{extra}</div>}
       </div>
-      {extra && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{extra}</div>}
-    </div>
+    </>
   );
 }

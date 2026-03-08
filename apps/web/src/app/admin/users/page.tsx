@@ -103,9 +103,9 @@ const roleColorMap: Record<string, string> = {
 };
 
 function formatRole(role: string): string {
-  return role
+  return (role ?? '')
     .split('_')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
     .join(' ');
 }
 
@@ -309,7 +309,7 @@ export default function UsersPage() {
           status={status === 'active' ? 'success' : 'error'}
           text={
             <Text style={{ fontSize: 13 }}>
-              {status.charAt(0).toUpperCase() + status.slice(1)}
+              {status ? status.charAt(0).toUpperCase() + status.slice(1) : ''}
             </Text>
           }
         />

@@ -118,7 +118,7 @@ export default function SystemHealthPage() {
           icon={statusIcon[status] ?? statusIcon['down']}
           color={statusTagColor[status] ?? 'default'}
         >
-          {status.charAt(0).toUpperCase() + status.slice(1)}
+          {status ? status.charAt(0).toUpperCase() + status.slice(1) : ''}
         </Tag>
       ),
       filters: [
@@ -312,7 +312,7 @@ export default function SystemHealthPage() {
                       <Text
                         style={{ fontSize: 13, fontWeight: 600, color }}
                       >
-                        {service.errorRate.toFixed(2)}%
+                        {(service.errorRate ?? 0).toFixed(2)}%
                       </Text>
                     </div>
                     <Progress

@@ -133,7 +133,22 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* ─── Responsive — tablet & mobile ────────────────────────────────────── */
+/* ─── Responsive — laptop / tablet / mobile ──────────────────────────── */
+
+@media (max-width: 1024px) {
+  .ant-drawer-content-wrapper {
+    max-width: 90vw !important;
+  }
+
+  .ant-table-thead > tr > th {
+    font-size: 11px !important;
+    padding: 10px 12px !important;
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 10px 12px !important;
+  }
+}
 
 @media (max-width: 768px) {
   .ant-drawer-content-wrapper {
@@ -156,6 +171,33 @@ body {
   .ant-descriptions-item-label {
     font-size: 12px !important;
   }
+
+  .ant-statistic-content-value {
+    font-size: 22px !important;
+  }
+
+  .ant-table-thead > tr > th {
+    font-size: 11px !important;
+    padding: 8px 10px !important;
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+  }
+
+  .ant-pagination {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 4px !important;
+  }
+
+  .ant-pagination-total-text {
+    display: block !important;
+    width: 100% !important;
+    text-align: center !important;
+    margin-bottom: 4px !important;
+  }
 }
 
 @media (max-width: 480px) {
@@ -173,6 +215,16 @@ body {
 
   .emergency-banner .ant-card-body {
     padding: 20px 16px !important;
+  }
+
+  .ant-statistic-content-value {
+    font-size: 20px !important;
+  }
+
+  .ant-descriptions-item-label,
+  .ant-descriptions-item-content {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
   }
 }
 

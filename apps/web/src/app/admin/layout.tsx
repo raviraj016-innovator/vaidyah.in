@@ -29,9 +29,15 @@ function AdminLayoutInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const check = () => {
-      const mobile = window.innerWidth <= 768;
+      const w = window.innerWidth;
+      const mobile = w <= 768;
       setIsMobile(mobile);
-      if (mobile) setSiderCollapsed(true);
+      if (mobile) {
+        setSiderCollapsed(true);
+      } else if (w <= 1024) {
+        // Auto-collapse on small laptops/tablets
+        setSiderCollapsed(true);
+      }
     };
     check();
     window.addEventListener('resize', check);

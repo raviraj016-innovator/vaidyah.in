@@ -284,7 +284,7 @@ export default function AdminTrialsPage() {
 
       {/* Stats Row */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={8}>
+        <Col xs={24} sm={8}>
           <Card>
             <Statistic
               title="Total Trials"
@@ -293,7 +293,7 @@ export default function AdminTrialsPage() {
             />
           </Card>
         </Col>
-        <Col xs={8}>
+        <Col xs={24} sm={8}>
           <Card>
             <Statistic
               title="Recruiting"
@@ -303,7 +303,7 @@ export default function AdminTrialsPage() {
             />
           </Card>
         </Col>
-        <Col xs={8}>
+        <Col xs={24} sm={8}>
           <Card>
             <Statistic
               title="Completed"
@@ -402,30 +402,33 @@ export default function AdminTrialsPage() {
         }
       >
         {/* Filters */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          <Input
-            prefix={<SearchOutlined />}
-            placeholder="Search by title, NCT ID, or condition..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ maxWidth: 360 }}
-            allowClear
-          />
-          <Select
-            placeholder="Filter by status"
-            value={statusFilter}
-            onChange={setStatusFilter}
-            allowClear
-            style={{ width: 180 }}
-            options={[
-              { label: 'Recruiting', value: 'recruiting' },
-              { label: 'Completed', value: 'completed' },
-              { label: 'Active', value: 'active' },
-              { label: 'Suspended', value: 'suspended' },
-              { label: 'Terminated', value: 'terminated' },
-            ]}
-          />
-        </div>
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col xs={24} sm={16} md={12}>
+            <Input
+              prefix={<SearchOutlined />}
+              placeholder="Search by title, NCT ID, or condition..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              allowClear
+            />
+          </Col>
+          <Col xs={24} sm={8} md={6}>
+            <Select
+              placeholder="Filter by status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              allowClear
+              style={{ width: '100%' }}
+              options={[
+                { label: 'Recruiting', value: 'recruiting' },
+                { label: 'Completed', value: 'completed' },
+                { label: 'Active', value: 'active' },
+                { label: 'Suspended', value: 'suspended' },
+                { label: 'Terminated', value: 'terminated' },
+              ]}
+            />
+          </Col>
+        </Row>
 
         <Table
           columns={columns}
@@ -450,7 +453,7 @@ export default function AdminTrialsPage() {
         title={selectedTrial?.nct_id}
         open={!!selectedTrial}
         onClose={() => setSelectedTrial(null)}
-        width={600}
+        width={typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : 600}
       >
         {selectedTrial && (
           <Space direction="vertical" size={20} style={{ width: '100%' }}>

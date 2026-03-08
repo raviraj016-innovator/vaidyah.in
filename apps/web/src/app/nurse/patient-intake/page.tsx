@@ -240,7 +240,7 @@ export default function PatientIntakePage() {
               size="large"
             >
               <Row gutter={16}>
-                <Col xs={24} sm={16}>
+                <Col xs={24} sm={12} md={14}>
                   <Form.Item
                     name="name"
                     label={language === 'hi' ? 'पूरा नाम' : 'Full Name'}
@@ -294,7 +294,7 @@ export default function PatientIntakePage() {
                     />
                   </Form.Item>
                 </Col>
-                <Col xs={24} sm={4}>
+                <Col xs={12} sm={8} md={6}>
                   <Form.Item
                     name="gender"
                     label={language === 'hi' ? 'लिंग' : 'Gender'}

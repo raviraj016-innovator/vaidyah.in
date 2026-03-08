@@ -231,7 +231,7 @@ export default function ConsultationsPage() {
       width: 130,
       render: (status: string) => (
         <Tag color={statusColorMap[status] ?? 'default'}>
-          {status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+          {(status ?? '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
         </Tag>
       ),
     },

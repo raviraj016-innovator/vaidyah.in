@@ -320,22 +320,22 @@ export default function PatientProfilePage() {
           </Button>
         }
       >
-        <Row gutter={16}>
-          <Col span={8}>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} sm={8}>
             <Statistic
               title={language === 'hi' ? 'मिलान किए गए' : 'Matched'}
               value={matchCount || 4}
               valueStyle={{ color: '#7c3aed' }}
             />
           </Col>
-          <Col span={8}>
+          <Col xs={24} sm={8}>
             <Statistic
               title={language === 'hi' ? 'पात्र' : 'Eligible'}
               value={eligibleCount || 3}
               valueStyle={{ color: '#52c41a' }}
             />
           </Col>
-          <Col span={8}>
+          <Col xs={24} sm={8}>
             <Statistic
               title={language === 'hi' ? 'स्थितियां' : 'Conditions'}
               value={conditions.length}

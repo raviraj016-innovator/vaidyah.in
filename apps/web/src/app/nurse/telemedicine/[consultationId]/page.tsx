@@ -541,18 +541,18 @@ export default function TelemedicinePage() {
                 background: '#000',
                 borderRadius: 8,
                 overflow: 'hidden',
-                minHeight: 420,
+                minHeight: 280,
               },
             }}
             style={{ marginBottom: 16 }}
           >
-            <div style={{ position: 'relative', minHeight: 420, background: '#000' }}>
+            <div style={{ position: 'relative', minHeight: 280, background: '#000', aspectRatio: '16/9' }}>
                 {/* Remote video (main) */}
                 <video
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', minHeight: 420 }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', minHeight: 280 }}
                 />
 
                 {/* Waiting overlay when no remote participant */}
@@ -582,10 +582,10 @@ export default function TelemedicinePage() {
                 <div
                   style={{
                     position: 'absolute',
-                    bottom: 16,
-                    right: 16,
-                    width: 160,
-                    height: 120,
+                    bottom: 12,
+                    right: 12,
+                    width: 'clamp(100px, 20%, 160px)',
+                    aspectRatio: '4/3',
                     borderRadius: 8,
                     overflow: 'hidden',
                     border: '2px solid rgba(255,255,255,0.3)',
@@ -784,7 +784,7 @@ export default function TelemedicinePage() {
               size="small"
               style={{ marginBottom: 16 }}
             >
-              <Descriptions column={2} size="small">
+              <Descriptions column={{ xs: 1, sm: 2 }} size="small">
                 <Descriptions.Item label={language === 'hi' ? 'नाम' : 'Name'}>
                   {patient.name}
                 </Descriptions.Item>
@@ -852,7 +852,7 @@ export default function TelemedicinePage() {
         }
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        width={400}
+        width={typeof window !== 'undefined' && window.innerWidth < 768 ? '100%' : 400}
       >
         {patient ? (
           <>

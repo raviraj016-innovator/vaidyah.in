@@ -285,7 +285,7 @@ export default function HealthDataPage() {
                   color={SEVERITY_COLORS[alert.severity]}
                   style={{ fontSize: 10, padding: '0 6px' }}
                 >
-                  {alert.severity.toUpperCase()}
+                  {(alert.severity ?? '').toUpperCase()}
                 </Tag>
               </Space>
             }
