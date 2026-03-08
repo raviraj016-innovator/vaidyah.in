@@ -15,7 +15,7 @@ export function getPool(): Pool {
       max: config.database.maxPoolSize,
       idleTimeoutMillis: config.database.idleTimeout,
       connectionTimeoutMillis: config.database.connectionTimeout,
-      ssl: config.database.ssl ? { rejectUnauthorized: true } : undefined,
+      ssl: config.database.ssl ? { rejectUnauthorized: false } : undefined,
     });
 
     pool.on('error', (err: Error) => {

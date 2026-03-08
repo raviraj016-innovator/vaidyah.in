@@ -21,7 +21,7 @@ function getPoolConfig(): PoolConfig {
   };
 
   if (config.database.ssl) {
-    cfg.ssl = process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: true };
+    cfg.ssl = process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false };
   }
 
   return cfg;

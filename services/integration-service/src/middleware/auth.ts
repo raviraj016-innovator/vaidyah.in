@@ -98,19 +98,17 @@ async function verifyToken(token: string): Promise<AuthenticatedUser> {
     return extractUser(payload);
   }
 
-  if (!isProd && process.env.ALLOW_DEV_AUTH === 'true') {
-    // Development: Verify signature with JWT_SECRET (HS256)
+  // Fallback: Verify with JWT_SECRET (HS256) when Cognito is not configured
+  if (config.jwt.secret) {
     const payload = jwt.verify(token, config.jwt.secret, {
       algorithms: ['HS256'],
-      issuer: config.jwt.issuer,
-      audience: config.jwt.audience,
     }) as jwt.JwtPayload;
 
     return extractUser(payload);
   }
 
   throw new UnauthorizedError(
-    'Authentication not configured: set COGNITO_USER_POOL_ID or run in development mode with ALLOW_DEV_AUTH=true'
+    'Authentication not configured: set COGNITO_USER_POOL_ID or JWT_SECRET'
   );
 }
 

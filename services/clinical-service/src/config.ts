@@ -107,14 +107,9 @@ export const config = {
   },
 } as const;
 
-// Production validation
-if (isProd) {
-  if (!config.cognito.userPoolId) {
-    throw new Error('COGNITO_USER_POOL_ID must be set in production');
-  }
-  if (!config.cognito.clientId) {
-    throw new Error('COGNITO_CLIENT_ID must be set in production');
-  }
+// Production validation — Cognito is optional when using JWT HS256 auth
+if (isProd && !config.cognito.userPoolId && !config.jwt.secret) {
+  throw new Error('Either COGNITO_USER_POOL_ID or JWT_SECRET must be set in production');
 }
 
 export type Config = typeof config;

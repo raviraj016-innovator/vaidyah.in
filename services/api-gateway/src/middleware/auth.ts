@@ -147,8 +147,8 @@ export function authenticate(
     return;
   }
 
-  // In development with no Cognito configured, verify JWTs signed with the local dev secret
-  if (config.server.env === 'development' && process.env.NODE_ENV !== 'production' && !config.cognito.userPoolId) {
+  // When Cognito is not configured, verify JWTs signed with JWT_SECRET (HS256)
+  if (!config.cognito.userPoolId) {
     verifyDevJwt(token, req, next);
     return;
   }

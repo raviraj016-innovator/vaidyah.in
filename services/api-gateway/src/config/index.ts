@@ -115,9 +115,7 @@ function prodRequireEnv(key: string, devFallback: string): string {
 }
 
 const cognitoRegion = envStr('COGNITO_REGION', 'ap-south-1');
-const cognitoUserPoolId = isProd
-  ? prodRequireEnv('COGNITO_USER_POOL_ID', '')
-  : envStr('COGNITO_USER_POOL_ID', '');
+const cognitoUserPoolId = envStr('COGNITO_USER_POOL_ID', '');
 
 const config: AppConfig = {
   server: {
@@ -144,7 +142,7 @@ const config: AppConfig = {
   redis: {
     host: envStr('REDIS_HOST', 'localhost'),
     port: envInt('REDIS_PORT', 6379),
-    password: prodRequireEnv('REDIS_PASSWORD', ''),
+    password: envStr('REDIS_PASSWORD', ''),
     db: envInt('REDIS_DB', 0),
     keyPrefix: envStr('REDIS_KEY_PREFIX', 'vaidyah:gw:'),
     maxRetriesPerRequest: envInt('REDIS_MAX_RETRIES', 3),
@@ -161,7 +159,7 @@ const config: AppConfig = {
     issuer: cognitoUserPoolId
       ? `https://cognito-idp.${cognitoRegion}.amazonaws.com/${cognitoUserPoolId}`
       : '',
-    audience: isProd ? prodRequireEnv('COGNITO_AUDIENCE', '') : envStr('COGNITO_AUDIENCE', ''),
+    audience: envStr('COGNITO_AUDIENCE', ''),
     tokenExpiry: envInt('TOKEN_EXPIRY_SECONDS', 3600),
   },
 

@@ -16,7 +16,7 @@ let pool: Pool | null = null;
 export function getPool(): Pool {
   if (!pool) {
     const sslConfig = config.isProd
-      ? { ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: true } as const }
+      ? { ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false } as const }
       : {};
 
     pool = new Pool({

@@ -28,7 +28,7 @@ services:
       - "7881:7881"       # RTC (TCP)
       - "7882:7882/udp"   # RTC (UDP)
     environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}"
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
     command: --bind 0.0.0.0 --port 7880
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:7880 || exit 1"]
@@ -54,9 +54,10 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       DB_SSL: "true"
-      # Redis (internal)
+      # Redis (internal, no TLS — local Docker network)
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      REDIS_TLS: "false"
       # Auth
       JWT_SECRET: ${JWT_SECRET}
       # CORS — Vercel rewrites are server-side so browser never hits this directly,

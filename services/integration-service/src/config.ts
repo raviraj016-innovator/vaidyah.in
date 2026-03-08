@@ -69,8 +69,8 @@ export const config = {
 
   // ─── Cognito ────────────────────────────────────────────────────────────
   cognito: {
-    userPoolId: prodRequireEnv('COGNITO_USER_POOL_ID', 'ap-south-1_devPool'),
-    clientId: prodRequireEnv('COGNITO_CLIENT_ID', 'dev-client-id'),
+    userPoolId: optionalEnv('COGNITO_USER_POOL_ID', ''),
+    clientId: optionalEnv('COGNITO_CLIENT_ID', ''),
     region: optionalEnv('AWS_REGION', 'ap-south-1'),
   },
 
@@ -87,7 +87,7 @@ export const config = {
 
   // ─── Encryption ───────────────────────────────────────────────────────
   encryption: {
-    key: prodRequireEnv('ENCRYPTION_KEY', ''),
+    key: optionalEnv('ENCRYPTION_KEY', ''),
   },
 
   // ─── ABDM (Ayushman Bharat Digital Mission) ──────────────────────────────
@@ -100,8 +100,8 @@ export const config = {
     healthIdUrl: optionalEnv('ABDM_HEALTH_ID_URL', 'https://healthidsbx.abdm.gov.in/api'),
 
     // Credentials
-    clientId: prodRequireEnv('ABDM_CLIENT_ID', ''),
-    clientSecret: prodRequireEnv('ABDM_CLIENT_SECRET', ''),
+    clientId: optionalEnv('ABDM_CLIENT_ID', ''),
+    clientSecret: optionalEnv('ABDM_CLIENT_SECRET', ''),
 
     // HIP (Health Information Provider) details
     hipId: requireEnv('ABDM_HIP_ID', 'vaidyah-hip-001'),
@@ -124,11 +124,11 @@ export const config = {
   // ─── WhatsApp Business API ───────────────────────────────────────────────
   whatsapp: {
     apiUrl: optionalEnv('WHATSAPP_API_URL', 'https://graph.facebook.com/v18.0'),
-    phoneNumberId: prodRequireEnv('WHATSAPP_PHONE_NUMBER_ID', ''),
-    businessAccountId: prodRequireEnv('WHATSAPP_BUSINESS_ACCOUNT_ID', ''),
-    accessToken: prodRequireEnv('WHATSAPP_ACCESS_TOKEN', ''),
-    webhookVerifyToken: prodRequireEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN', ''),
-    appSecret: prodRequireEnv('WHATSAPP_APP_SECRET', ''),
+    phoneNumberId: optionalEnv('WHATSAPP_PHONE_NUMBER_ID', ''),
+    businessAccountId: optionalEnv('WHATSAPP_BUSINESS_ACCOUNT_ID', ''),
+    accessToken: optionalEnv('WHATSAPP_ACCESS_TOKEN', ''),
+    webhookVerifyToken: optionalEnv('WHATSAPP_WEBHOOK_VERIFY_TOKEN', ''),
+    appSecret: optionalEnv('WHATSAPP_APP_SECRET', ''),
 
     // Rate limiting
     messagesPerSecond: optionalIntEnv('WHATSAPP_RATE_LIMIT', 80),
@@ -150,14 +150,14 @@ export const config = {
     },
     googleFit: {
       apiUrl: optionalEnv('GOOGLE_FIT_API_URL', 'https://www.googleapis.com/fitness/v1'),
-      clientId: prodRequireEnv('GOOGLE_FIT_CLIENT_ID', ''),
-      clientSecret: prodRequireEnv('GOOGLE_FIT_CLIENT_SECRET', ''),
+      clientId: optionalEnv('GOOGLE_FIT_CLIENT_ID', ''),
+      clientSecret: optionalEnv('GOOGLE_FIT_CLIENT_SECRET', ''),
       tokenUrl: optionalEnv('GOOGLE_FIT_TOKEN_URL', 'https://oauth2.googleapis.com/token'),
     },
     fitbit: {
       apiUrl: optionalEnv('FITBIT_API_URL', 'https://api.fitbit.com/1/user/-'),
-      clientId: prodRequireEnv('FITBIT_CLIENT_ID', ''),
-      clientSecret: prodRequireEnv('FITBIT_CLIENT_SECRET', ''),
+      clientId: optionalEnv('FITBIT_CLIENT_ID', ''),
+      clientSecret: optionalEnv('FITBIT_CLIENT_SECRET', ''),
       tokenUrl: optionalEnv('FITBIT_TOKEN_URL', 'https://api.fitbit.com/oauth2/token'),
       authUrl: optionalEnv('FITBIT_AUTH_URL', 'https://www.fitbit.com/oauth2/authorize'),
     },
