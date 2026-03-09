@@ -1,16 +1,13 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Card,
   Typography,
   Table,
   Tag,
   Button,
-  Upload,
   Space,
-  Progress,
-  Alert,
   Input,
   Select,
   Descriptions,
@@ -22,7 +19,6 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  UploadOutlined,
   SearchOutlined,
   ExperimentOutlined,
   ReloadOutlined,
@@ -65,15 +61,6 @@ interface TrialRow {
   };
 }
 
-interface CsvImportStatus {
-  state: string;
-  total_rows: number;
-  processed: number;
-  indexed: number;
-  failed: number;
-  errors: string[];
-}
-
 // ---------------------------------------------------------------------------
 // Status color helpers
 // ---------------------------------------------------------------------------
@@ -111,11 +98,6 @@ export default function AdminTrialsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
 
-  // CSV import
-  const [importing, setImporting] = useState(false);
-  const [importStatus, setImportStatus] = useState<CsvImportStatus | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-
   // Trial detail drawer
   const [selectedTrial, setSelectedTrial] = useState<TrialRow | null>(null);
 
@@ -149,77 +131,6 @@ export default function AdminTrialsPage() {
   useEffect(() => {
     fetchTrials(page);
   }, [fetchTrials, page]);
-
-  // CSV upload via Next.js proxy (max ~4.5 MB on Vercel free tier).
-  // For larger files, use the server-side CLI: scripts/ingest-trials.sh on EC2.
-  const handleUpload = useCallback(async (file: File) => {
-    if (file.size > 4 * 1024 * 1024) {
-      message.error('File too large for web upload (max 4 MB). Use the server-side CLI on EC2 instead.');
-      return false;
-    }
-    setImporting(true);
-    setImportStatus(null);
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      await api.post(endpoints.trials.csvUpload, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      message.success('CSV upload started. Processing in background...');
-
-      // Clear any existing poll before starting a new one
-      if (pollRef.current) clearInterval(pollRef.current);
-      // Poll for status (max 60 attempts = ~2 minutes)
-      let pollErrors = 0;
-      let pollCount = 0;
-      pollRef.current = setInterval(async () => {
-        pollCount++;
-        if (pollCount > 60) {
-          clearInterval(pollRef.current);
-          setImporting(false);
-          message.warning('Import status polling timed out. Check back later.');
-          return;
-        }
-        try {
-          const res = await api.get(endpoints.trials.csvStatus);
-          const status = res.data as CsvImportStatus;
-          setImportStatus(status);
-          pollErrors = 0; // reset on success
-
-          if (status.state === 'completed' || status.state === 'failed') {
-            clearInterval(pollRef.current);
-            setImporting(false);
-            if (status.state === 'completed') {
-              message.success(`Import complete: ${status.indexed} trials indexed`);
-              fetchTrials(1);
-            } else {
-              message.error(`Import failed. ${status.failed} errors.`);
-            }
-          }
-        } catch {
-          pollErrors++;
-          if (pollErrors >= 5) {
-            clearInterval(pollRef.current);
-            setImporting(false);
-            message.error('Failed to check import status. Please try again.');
-          }
-        }
-      }, 2000);
-    } catch {
-      message.error('Failed to upload CSV. Make sure the trial service is running.');
-      setImporting(false);
-    }
-
-    return false; // prevent default upload
-  }, [fetchTrials]);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
 
   // Filter trials locally for search
   const filteredTrials = trials.filter((t) => {
@@ -300,10 +211,6 @@ export default function AdminTrialsPage() {
     },
   ];
 
-  const importProgress = importStatus
-    ? Math.round((importStatus.processed / Math.max(importStatus.total_rows, 1)) * 100)
-    : 0;
-
   return (
     <div>
       <PageHeader
@@ -343,76 +250,6 @@ export default function AdminTrialsPage() {
           </Card>
         </Col>
       </Row>
-
-      {/* CSV Import Card */}
-      <Card
-        title={
-          <Space>
-            <UploadOutlined />
-            Import Clinical Trial Data
-          </Space>
-        }
-        style={{ marginBottom: 24 }}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size={16}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Upload
-              accept=".csv"
-              showUploadList={false}
-              beforeUpload={(file) => {
-                handleUpload(file);
-                return false;
-              }}
-              disabled={importing}
-            >
-              <Button
-                type="primary"
-                icon={<UploadOutlined />}
-                loading={importing}
-              >
-                {importing ? 'Importing...' : 'Upload CSV File'}
-              </Button>
-            </Upload>
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              Max 4 MB via web. For larger files, use <Text code style={{ fontSize: 12 }}>scripts/ingest-trials.sh</Text> on EC2.
-              <br />
-              Columns: nct_id, title, status, phase, condition, categories, age_group, min_age, max_age, gender, race_ethnicity, sponsor, locations, start_date, plain_english_summary, brief_summary, url
-            </Text>
-          </div>
-
-          {importStatus && (
-            <div>
-              <Progress
-                percent={importProgress}
-                status={importStatus.state === 'failed' ? 'exception' : importStatus.state === 'completed' ? 'success' : 'active'}
-                size="small"
-              />
-              <Space size={24} style={{ marginTop: 8 }}>
-                <Text>Processed: {importStatus.processed}/{importStatus.total_rows}</Text>
-                <Text style={{ color: '#52c41a' }}>Indexed: {importStatus.indexed}</Text>
-                {importStatus.failed > 0 && (
-                  <Text style={{ color: '#ff4d4f' }}>Failed: {importStatus.failed}</Text>
-                )}
-              </Space>
-              {importStatus.errors.length > 0 && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  message={`${importStatus.errors.length} errors encountered`}
-                  description={
-                    <ul style={{ margin: 0, paddingLeft: 16, maxHeight: 120, overflow: 'auto' }}>
-                      {importStatus.errors.slice(0, 10).map((e, i) => (
-                        <li key={i} style={{ fontSize: 12 }}>{e}</li>
-                      ))}
-                    </ul>
-                  }
-                  style={{ marginTop: 12 }}
-                />
-              )}
-            </div>
-          )}
-        </Space>
-      </Card>
 
       {/* Trials Table */}
       <Card

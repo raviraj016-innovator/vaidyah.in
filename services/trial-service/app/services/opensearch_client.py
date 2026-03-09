@@ -143,7 +143,7 @@ class TrialPgSearchClient:
         param_idx = 0
 
         # Free-text query
-        rank_expr = "0"
+        rank_expr = "0::float"
         if request.query:
             param_idx += 1
             expanded = _expand_query(request.query)
@@ -229,8 +229,10 @@ class TrialPgSearchClient:
             order_sql = "data->>'last_update_posted' DESC NULLS LAST"
         elif request.sort_by == "enrollment":
             order_sql = "(data->>'enrollment_count')::int DESC NULLS LAST"
-        else:
+        elif request.query:
             order_sql = f"{rank_expr} DESC, data->>'last_update_posted' DESC NULLS LAST"
+        else:
+            order_sql = "data->>'last_update_posted' DESC NULLS LAST"
 
         # Snapshot filter params before adding pagination (used by facets/count)
         filter_params = list(params)
