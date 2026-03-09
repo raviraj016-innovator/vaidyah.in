@@ -16,7 +16,7 @@ import { useAuth } from '@/lib/auth/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { LanguageSwitcher } from '@/components/layout/language-switcher';
-import { api } from '@/lib/api/client';
+import { authApi } from '@/lib/api/client';
 import { endpoints } from '@/lib/api/endpoints';
 
 const { Title, Text } = Typography;
@@ -54,8 +54,8 @@ export default function NurseLoginPage() {
   useEffect(() => {
     if (centersFetched || isAuthenticated) return;
 
-    api
-      .get(endpoints.centers?.list ?? '/api/centers')
+    authApi
+      .get('/centers')
       .then((res) => {
         if (res.data?.data?.length) setCenters(res.data.data);
         setCentersFetched(true);

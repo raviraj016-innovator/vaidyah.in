@@ -62,7 +62,7 @@ export async function encrypt(plaintext: string): Promise<string> {
   const authTag = cipher.getAuthTag();
 
   // Wipe plaintext data key from memory
-  Buffer.from(dataKey).fill(0);
+  (dataKey as Uint8Array).fill(0);
 
   // Package: [encryptedDataKeyLen(2)] [encryptedDataKey] [iv(16)] [authTag(16)] [ciphertext]
   const edkLen = Buffer.alloc(2);
@@ -114,7 +114,7 @@ export async function decrypt(ciphertext: string): Promise<string> {
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
 
   // Wipe plaintext data key from memory
-  Buffer.from(dataKey).fill(0);
+  (dataKey as Uint8Array).fill(0);
 
   return decrypted.toString('utf8');
 }

@@ -115,6 +115,8 @@ async function verifyToken(token: string): Promise<AuthenticatedUser> {
   if (config.jwt.secret) {
     const payload = jwt.verify(token, config.jwt.secret, {
       algorithms: ['HS256'],
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience,
     }) as jwt.JwtPayload;
 
     return extractUser(payload);

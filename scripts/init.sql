@@ -18,12 +18,13 @@ CREATE TABLE health_centers (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name            TEXT NOT NULL,
     code            VARCHAR(20) UNIQUE NOT NULL,
+    center_type     VARCHAR(30) DEFAULT 'PHC',
     district        TEXT NOT NULL,
     state           TEXT NOT NULL,
     pincode         VARCHAR(6),
     latitude        DECIMAL(10, 8),
     longitude       DECIMAL(11, 8),
-    connectivity    VARCHAR(20) DEFAULT 'limited',
+    connectivity    VARCHAR(20) DEFAULT 'good',
     phone           VARCHAR(15),
     active          BOOLEAN DEFAULT true,
     metadata        JSONB DEFAULT '{}',
@@ -280,42 +281,54 @@ CREATE TABLE soap_notes (
 -- ============ INTEGRATION SERVICE TABLES ============
 
 CREATE TABLE whatsapp_messages (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    patient_id      UUID REFERENCES patients(id),
-    direction       VARCHAR(10) NOT NULL DEFAULT 'outbound',
-    phone_number    VARCHAR(15) NOT NULL,
-    message_type    VARCHAR(20) NOT NULL DEFAULT 'text',
-    template_id     TEXT,
-    content         TEXT,
-    status          VARCHAR(20) DEFAULT 'pending',
-    wa_message_id   TEXT,
-    metadata        JSONB DEFAULT '{}',
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    delivered_at    TIMESTAMPTZ,
-    read_at         TIMESTAMPTZ
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    patient_id          UUID REFERENCES patients(id),
+    direction           VARCHAR(10) NOT NULL DEFAULT 'outbound',
+    phone_number        VARCHAR(15) NOT NULL,
+    message_type        VARCHAR(20) NOT NULL DEFAULT 'text',
+    template_type       TEXT,
+    content             TEXT,
+    language            VARCHAR(10) DEFAULT 'en',
+    status              VARCHAR(20) DEFAULT 'pending',
+    whatsapp_message_id TEXT,
+    metadata            JSONB DEFAULT '{}',
+    error_code          TEXT,
+    error_message       TEXT,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    sent_at             TIMESTAMPTZ,
+    delivered_at        TIMESTAMPTZ,
+    read_at             TIMESTAMPTZ
 );
 
 CREATE TABLE wearable_connections (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     patient_id      UUID NOT NULL REFERENCES patients(id),
-    device_type     VARCHAR(50) NOT NULL,
+    platform        VARCHAR(50) NOT NULL,
     device_id       TEXT,
     access_token    TEXT,
     refresh_token   TEXT,
-    token_expires_at TIMESTAMPTZ,
+    expires_at      TIMESTAMPTZ,
+    scopes          TEXT,
     is_active       BOOLEAN DEFAULT true,
+    connected_at    TIMESTAMPTZ DEFAULT NOW(),
     last_sync_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ DEFAULT NOW()
+    updated_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (patient_id, platform)
 );
 
 CREATE TABLE wearable_data (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     patient_id      UUID NOT NULL REFERENCES patients(id),
     connection_id   UUID REFERENCES wearable_connections(id),
+    platform        VARCHAR(50),
     data_type       VARCHAR(50) NOT NULL,
     value           JSONB NOT NULL,
-    recorded_at     TIMESTAMPTZ NOT NULL,
+    unit            VARCHAR(50),
+    start_time      TIMESTAMPTZ,
+    end_time        TIMESTAMPTZ,
+    metadata        JSONB,
+    recorded_at     TIMESTAMPTZ,
     synced_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -324,10 +337,14 @@ CREATE TABLE health_alerts (
     patient_id      UUID NOT NULL REFERENCES patients(id),
     alert_type      VARCHAR(50) NOT NULL,
     severity        VARCHAR(20) DEFAULT 'medium',
-    title           TEXT NOT NULL,
+    title           TEXT DEFAULT '',
     message         TEXT NOT NULL,
     source          VARCHAR(50),
     data            JSONB DEFAULT '{}',
+    data_type       VARCHAR(50),
+    current_value   TEXT,
+    normal_range    JSONB,
+    detected_at     TIMESTAMPTZ DEFAULT NOW(),
     acknowledged    BOOLEAN DEFAULT false,
     acknowledged_at TIMESTAMPTZ,
     created_at      TIMESTAMPTZ DEFAULT NOW()
@@ -345,6 +362,58 @@ CREATE TABLE scheduled_notifications (
     sent_at         TIMESTAMPTZ,
     metadata        JSONB DEFAULT '{}',
     created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============ ABDM / INTEGRATION TABLES ============
+
+CREATE TABLE abdm_verifications (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    abha_id         VARCHAR(255) NOT NULL,
+    auth_method     VARCHAR(50) NOT NULL,
+    purpose         VARCHAR(100),
+    status          VARCHAR(50) DEFAULT 'PENDING',
+    response_data   JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE consent_requests (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    patient_id      UUID NOT NULL REFERENCES patients(id),
+    abha_address    VARCHAR(255) NOT NULL,
+    purpose         VARCHAR(100) NOT NULL,
+    hi_types        JSONB DEFAULT '[]',
+    date_range_from TIMESTAMPTZ,
+    date_range_to   TIMESTAMPTZ,
+    expiry          TIMESTAMPTZ,
+    status          VARCHAR(50) DEFAULT 'REQUESTED',
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE health_records (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    patient_id          UUID NOT NULL REFERENCES patients(id),
+    record_type         VARCHAR(50) NOT NULL,
+    source_hip_id       VARCHAR(100),
+    source_hip_name     TEXT,
+    fhir_bundle         JSONB,
+    summary             TEXT,
+    record_date         TIMESTAMPTZ,
+    fetched_at          TIMESTAMPTZ,
+    consent_artifact_id UUID,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (patient_id, record_type, record_date)
+);
+
+CREATE TABLE care_relationships (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    doctor_id   UUID NOT NULL REFERENCES users(id),
+    patient_id  UUID NOT NULL REFERENCES patients(id),
+    status      VARCHAR(20) DEFAULT 'active',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (doctor_id, patient_id)
 );
 
 -- ============ INDEXES ============
@@ -367,6 +436,7 @@ CREATE INDEX idx_audit_log_resource ON audit_log(resource_type, resource_id);
 CREATE INDEX idx_triage_results_session ON triage_results(session_id);
 CREATE INDEX idx_soap_notes_session ON soap_notes(session_id);
 CREATE INDEX idx_whatsapp_messages_patient ON whatsapp_messages(patient_id);
+CREATE UNIQUE INDEX idx_whatsapp_messages_wa_id ON whatsapp_messages(whatsapp_message_id) WHERE whatsapp_message_id IS NOT NULL;
 CREATE INDEX idx_wearable_connections_patient ON wearable_connections(patient_id);
 CREATE INDEX idx_wearable_data_patient ON wearable_data(patient_id, data_type);
 CREATE INDEX idx_wearable_data_recorded ON wearable_data(recorded_at DESC);

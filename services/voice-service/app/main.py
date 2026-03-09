@@ -214,7 +214,9 @@ async def health_check() -> HealthResponse:
     # AWS connectivity
     try:
         if "polly_client" in _shared_state:
-            _shared_state["polly_client"].describe_voices(MaxResults=1)
+            await asyncio.to_thread(
+                _shared_state["polly_client"].describe_voices, MaxResults=1,
+            )
             checks["aws_polly"] = "healthy"
         else:
             checks["aws_polly"] = "not_configured"
@@ -224,8 +226,9 @@ async def health_check() -> HealthResponse:
 
     try:
         if "s3_client" in _shared_state:
-            _shared_state["s3_client"].head_bucket(
-                Bucket=settings.s3_audio_bucket
+            await asyncio.to_thread(
+                _shared_state["s3_client"].head_bucket,
+                Bucket=settings.s3_audio_bucket,
             )
             checks["aws_s3"] = "healthy"
         else:
@@ -257,6 +260,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         path=request.url.path,
         method=request.method,
         error=str(exc),
+        exc_info=exc,
     )
     return JSONResponse(
         status_code=500,

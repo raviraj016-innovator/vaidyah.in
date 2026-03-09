@@ -53,14 +53,16 @@ function createGuestFallbackInterceptor() {
 
       // Provide sensible defaults for common endpoints
       if (url.includes('/health')) mockData.status = 'ok';
-      if (url.includes('/stats') || url.includes('/analytics')) {
+      if (url.includes('/nurse/dashboard/stats')) {
+        Object.assign(mockData, { data: { patientsSeen: 12, pendingTriage: 3, emergencies: 0 } });
+      } else if (url.includes('/stats') || url.includes('/analytics')) {
         Object.assign(mockData, { total_patients: 1247, total_consultations: 3891, total_nurses: 48, total_centers: 12, active_sessions: 5 });
       }
       if (url.includes('/centers')) {
         mockData.data = [
-          { id: 'demo-center-1', name: 'PHC Koregaon Park', district: 'Pune', state: 'Maharashtra', status: 'active', nurses_count: 8, patients_count: 320 },
-          { id: 'demo-center-2', name: 'CHC Hadapsar', district: 'Pune', state: 'Maharashtra', status: 'active', nurses_count: 12, patients_count: 580 },
-          { id: 'demo-center-3', name: 'PHC Kothrud', district: 'Pune', state: 'Maharashtra', status: 'active', nurses_count: 6, patients_count: 210 },
+          { id: 'demo-center-1', name: 'PHC Koregaon Park', type: 'PHC', district: 'Pune', state: 'Maharashtra', status: 'active', staffCount: 8, dailyAvg: 40, connectivity: 'good', latitude: 18.5362, longitude: 73.8939, totalPatients: 320, activeSince: '2024-01-15', lastSync: '2 min ago' },
+          { id: 'demo-center-2', name: 'CHC Hadapsar', type: 'CHC', district: 'Pune', state: 'Maharashtra', status: 'active', staffCount: 12, dailyAvg: 65, connectivity: 'good', latitude: 18.5089, longitude: 73.9260, totalPatients: 580, activeSince: '2023-08-10', lastSync: '5 min ago' },
+          { id: 'demo-center-3', name: 'PHC Kothrud', type: 'PHC', district: 'Pune', state: 'Maharashtra', status: 'active', staffCount: 6, dailyAvg: 28, connectivity: 'intermittent', latitude: 18.5074, longitude: 73.8077, totalPatients: 210, activeSince: '2024-06-01', lastSync: '15 min ago' },
         ];
         mockData.total = 3;
       }
@@ -89,6 +91,16 @@ function createGuestFallbackInterceptor() {
 
 api.interceptors.response.use(undefined, createGuestFallbackInterceptor());
 authApi.interceptors.response.use(undefined, createGuestFallbackInterceptor());
+
+// Mark 401 errors so downstream catch blocks can skip duplicate toasts
+function markAuthErrors(error: AxiosError) {
+  if (error.response?.status === 401) {
+    (error as any)._authHandled = true;
+  }
+  return Promise.reject(error);
+}
+
+api.interceptors.response.use(undefined, markAuthErrors);
 
 // Response interceptor: handle 401 / token refresh
 let isRefreshing = false;
@@ -121,7 +133,15 @@ function createRefreshInterceptor(axiosInstance: typeof api) {
 
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (useAuthStore.getState().isGuest) return Promise.reject(error);
+    const { isGuest, token } = useAuthStore.getState();
+    if (isGuest) return Promise.reject(error);
+
+    // Don't attempt refresh if user has no token (e.g. on login page)
+    if (!token) return Promise.reject(error);
+
+    // Don't attempt refresh if the failing request IS the refresh endpoint (prevents circular loop)
+    const url = originalRequest.url ?? '';
+    if (url.includes('/token/refresh')) return Promise.reject(error);
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {

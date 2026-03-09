@@ -98,21 +98,24 @@ export async function getClient(): Promise<PoolClient> {
 export async function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>
 ): Promise<T> {
-  const client = await getClient();
+  let client: PoolClient | undefined;
   try {
+    client = await getClient();
     await client.query('BEGIN');
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackErr) {
-      console.error('[DB] ROLLBACK failed:', rollbackErr);
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('[DB] ROLLBACK failed:', rollbackErr);
+      }
     }
     throw err;
   } finally {
-    client.release();
+    client?.release();
   }
 }
 

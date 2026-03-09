@@ -82,7 +82,7 @@ export const config = {
       return secret;
     })(),
     issuer: optionalEnv('JWT_ISSUER', 'vaidyah-auth'),
-    audience: optionalEnv('JWT_AUDIENCE', 'vaidyah-services'),
+    audience: optionalEnv('JWT_AUDIENCE', 'vaidyah'),
   },
 
   // ─── Encryption ───────────────────────────────────────────────────────

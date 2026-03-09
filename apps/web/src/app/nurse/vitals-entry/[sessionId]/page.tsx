@@ -7,6 +7,8 @@ import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, VitalsData } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { VitalsForm } from '@/components/forms/vitals-form';
+import api from '@/lib/api/client';
+import { endpoints } from '@/lib/api/endpoints';
 
 export default function VitalsEntryPage() {
   const router = useRouter();
@@ -20,9 +22,28 @@ export default function VitalsEntryPage() {
   const submitVitals = useSessionStore((s) => s.submitVitals);
 
   const handleSubmit = useCallback(
-    (values: VitalsData) => {
+    async (values: VitalsData) => {
       setVitals(values);
       submitVitals();
+
+      // POST vitals to backend
+      try {
+        await api.post(endpoints.sessions.vitals(sessionId), {
+          heartRate: values.heartRate,
+          systolicBp: values.systolic,
+          diastolicBp: values.diastolic,
+          temperature: values.temperature,
+          spO2: values.spO2,
+          respiratoryRate: values.respiratoryRate,
+          bloodGlucose: values.bloodGlucose,
+          weight: values.weight,
+          height: values.height,
+          painScore: values.painScore,
+        });
+      } catch (err) {
+        console.error('Failed to save vitals to backend:', err);
+      }
+
       message.success(
         language === 'hi'
           ? 'वाइटल्स सफलतापूर्वक दर्ज किए गए'
@@ -30,7 +51,7 @@ export default function VitalsEntryPage() {
       );
       router.push(`/nurse/triage-result/${sessionId}`);
     },
-    [setVitals, submitVitals, router, sessionId, language, message],
+    [setVitals, submitVitals, router, sessionId, language],
   );
 
   const handleCancel = useCallback(() => {

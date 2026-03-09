@@ -49,9 +49,12 @@ usersRouter.get(
     const total = parseInt(countResult?.count ?? '0', 10);
 
     const rows = await queryRows(
-      `SELECT u.id, u.name, u.email, u.phone, u.role, u.center_id, u.active,
-              u.specialization, u.last_login, u.created_at,
-              h.name AS center_name
+      `SELECT u.id, u.name, u.email, u.phone, u.role,
+              u.center_id AS "centerId",
+              CASE WHEN u.active THEN 'active' ELSE 'inactive' END AS status,
+              u.specialization AS qualifications,
+              u.last_login AS "lastActive", u.created_at,
+              h.name AS center
        FROM users u LEFT JOIN health_centers h ON u.center_id = h.id
        ${where}
        ORDER BY u.created_at DESC
@@ -160,9 +163,15 @@ centersRouter.get(
     const total = parseInt(countResult?.count ?? '0', 10);
 
     const rows = await queryRows(
-      `SELECT h.*,
-              (SELECT COUNT(*) FROM users WHERE center_id = h.id AND active = true)::int AS staff_count,
-              (SELECT COUNT(*) FROM consultations WHERE center_id = h.id AND created_at >= CURRENT_DATE)::int AS today_consultations
+      `SELECT h.id, h.name, COALESCE(h.center_type, 'PHC') AS type,
+              h.state, h.district,
+              CASE WHEN h.active THEN 'active' ELSE 'inactive' END AS status,
+              (SELECT COUNT(*) FROM users WHERE center_id = h.id AND active = true)::int AS "staffCount",
+              (SELECT COUNT(*) FROM consultations WHERE center_id = h.id AND created_at >= CURRENT_DATE)::int AS "dailyAvg",
+              h.connectivity, h.latitude, h.longitude,
+              (SELECT COUNT(DISTINCT patient_id) FROM consultations WHERE center_id = h.id)::int AS "totalPatients",
+              TO_CHAR(h.created_at, 'YYYY-MM-DD') AS "activeSince",
+              COALESCE(TO_CHAR(h.updated_at, 'FMHH24:MI, DD Mon YYYY'), 'Never') AS "lastSync"
        FROM health_centers h
        ORDER BY h.name
        LIMIT $1 OFFSET $2`,
@@ -193,16 +202,17 @@ centersRouter.post(
   '/',
   requireRole('admin') as never,
   asyncHandler(async (req: Request, res: Response) => {
-    const { name, code, district, state, pincode, latitude, longitude, connectivity, phone } = req.body;
-    if (!name || !code || !district || !state) {
-      throw AppError.badRequest('name, code, district, and state are required');
+    const { name, code, type, district, state, pincode, latitude, longitude, connectivity, phone } = req.body;
+    if (!name || !district || !state) {
+      throw AppError.badRequest('name, district, and state are required');
     }
     const id = uuidv4();
+    const centerCode = code || name.replace(/[^A-Z0-9]/gi, '').substring(0, 10).toUpperCase();
     const row = await queryOne(
-      `INSERT INTO health_centers (id, name, code, district, state, pincode, latitude, longitude, connectivity, phone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO health_centers (id, name, code, center_type, district, state, pincode, latitude, longitude, connectivity, phone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [id, name, code, district, state, pincode ?? null, latitude ?? null, longitude ?? null, connectivity ?? 'limited', phone ?? null],
+      [id, name, centerCode, type ?? 'PHC', district, state, pincode ?? null, latitude ?? null, longitude ?? null, connectivity ?? 'good', phone ?? null],
     );
     res.status(201).json({ success: true, data: row });
   }),
@@ -214,23 +224,26 @@ centersRouter.put(
   validate(uuidParam('id')),
   requireRole('admin') as never,
   asyncHandler(async (req: Request, res: Response) => {
-    const { name, code, district, state, pincode, latitude, longitude, connectivity, phone, active } = req.body;
+    const { name, code, type, district, state, pincode, latitude, longitude, connectivity, phone, status } = req.body;
+    const activeVal = status === 'active' ? true : status === 'inactive' || status === 'maintenance' ? false : null;
     const row = await queryOne(
       `UPDATE health_centers SET
         name = COALESCE($2, name),
         code = COALESCE($3, code),
-        district = COALESCE($4, district),
-        state = COALESCE($5, state),
-        pincode = COALESCE($6, pincode),
-        latitude = COALESCE($7, latitude),
-        longitude = COALESCE($8, longitude),
-        connectivity = COALESCE($9, connectivity),
-        phone = COALESCE($10, phone),
-        active = COALESCE($11, active)
+        center_type = COALESCE($4, center_type),
+        district = COALESCE($5, district),
+        state = COALESCE($6, state),
+        pincode = COALESCE($7, pincode),
+        latitude = COALESCE($8, latitude),
+        longitude = COALESCE($9, longitude),
+        connectivity = COALESCE($10, connectivity),
+        phone = COALESCE($11, phone),
+        active = COALESCE($12, active),
+        updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [req.params.id, name ?? null, code ?? null, district ?? null, state ?? null,
-       pincode ?? null, latitude ?? null, longitude ?? null, connectivity ?? null, phone ?? null, active ?? null],
+      [req.params.id, name ?? null, code ?? null, type ?? null, district ?? null, state ?? null,
+       pincode ?? null, latitude ?? null, longitude ?? null, connectivity ?? null, phone ?? null, activeVal],
     );
     if (!row) throw AppError.notFound('Health Center');
     res.json({ success: true, data: row });
@@ -265,6 +278,7 @@ centersRouter.get(
         (SELECT COUNT(DISTINCT patient_id) FROM consultations WHERE center_id = $1)::int AS unique_patients,
         (SELECT ROUND(AVG(duration_secs)::numeric / 60, 1) FROM consultations WHERE center_id = $1 AND duration_secs > 0) AS avg_duration_mins
     `, [req.params.id]);
+    if (!stats) throw AppError.notFound('Health Center');
     res.json({ success: true, data: stats });
   }),
 );
@@ -306,8 +320,9 @@ patientsManagementRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 10, 50);
     const rows = await queryRows(
-      `SELECT p.id, p.name, p.phone, p.abdm_id, p.age, p.gender, p.date_of_birth,
-              c.created_at AS last_visit, c.status AS last_status
+      `SELECT p.id, p.name, p.phone, p.abdm_id AS "abdmId", p.age, p.gender,
+              p.date_of_birth AS "dateOfBirth", p.blood_group AS "bloodGroup",
+              c.created_at AS "lastVisit", c.status AS "lastStatus"
        FROM patients p
        LEFT JOIN LATERAL (
          SELECT created_at, status FROM consultations
@@ -451,12 +466,16 @@ consultationsRouter.get(
     const total = parseInt(countResult?.count ?? '0', 10);
 
     const rows = await queryRows(
-      `SELECT c.id, c.status, c.triage_level, c.urgency, c.language,
-              c.vitals, c.symptoms, c.diagnosis, c.soap_note, c.prosody_scores,
-              c.duration_secs, c.created_at, c.completed_at,
-              p.name AS patient_name, p.age AS patient_age, p.gender AS patient_gender, p.phone AS patient_phone,
-              n.name AS nurse_name,
-              h.name AS center_name
+      `SELECT c.id, c.status, c.triage_level AS "triageCategory", c.urgency, c.language,
+              c.vitals, c.symptoms, c.diagnosis, c.soap_note AS "soapNote", c.prosody_scores,
+              c.duration_secs,
+              COALESCE(ROUND(c.duration_secs::numeric / 60, 0) || ' min', '--') AS duration,
+              c.created_at AS "consultationDate", c.completed_at,
+              p.name AS "patientName", p.age AS "patientAge", p.gender AS "patientGender", p.phone AS "patientPhone",
+              c.nurse_id AS "nurseId",
+              n.name AS "nurseName",
+              c.center_id AS "centerId",
+              h.name AS "centerName"
        FROM consultations c
        LEFT JOIN patients p ON c.patient_id = p.id
        LEFT JOIN users n ON c.nurse_id = n.id
@@ -560,7 +579,7 @@ notificationsRouter.get(
     const authReq = req as AuthenticatedRequest;
     const patientId = authReq.user?.sub;
     const rows = await queryRows(
-      `SELECT id, alert_type AS type, title, message, metadata, sent, acknowledged AS read, created_at
+      `SELECT id, alert_type AS type, title, message AS body, metadata, sent, acknowledged AS read, created_at AS "createdAt"
        FROM alerts
        WHERE patient_id = $1 OR $1 IS NULL
        ORDER BY created_at DESC
@@ -612,11 +631,12 @@ sessionExtRouter.post(
     const { patientId, nurseId, facilityId, centerId, language } = req.body;
     const id = uuidv4();
     const cid = facilityId || centerId;
+    if (!cid) throw AppError.badRequest('facilityId or centerId is required');
     const row = await queryOne(
       `INSERT INTO consultations (id, patient_id, nurse_id, center_id, language, status)
        VALUES ($1, $2, $3, $4, $5, 'in_progress')
        RETURNING *`,
-      [id, patientId, nurseId ?? null, cid ?? null, language ?? 'hi'],
+      [id, patientId, nurseId ?? null, cid, language ?? 'hi'],
     );
     res.status(201).json({ success: true, data: row });
   }),
@@ -628,7 +648,7 @@ sessionExtRouter.post(
   validate(uuidParam('id')),
   asyncHandler(async (req: Request, res: Response) => {
     const row = await queryOne(
-      `UPDATE consultations SET status = 'in_progress' WHERE id = $1 RETURNING id, status`,
+      `UPDATE consultations SET status = 'cancelled' WHERE id = $1 AND status = 'in_progress' RETURNING id, status`,
       [req.params.id],
     );
     if (!row) throw AppError.notFound('Session');
@@ -674,7 +694,7 @@ sessionExtRouter.post(
     const id = uuidv4();
     const row = await queryOne(
       `INSERT INTO triage_results (id, session_id, triage_level, urgency_score, red_flags, recommended_action, input_data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       VALUES ($1, $2, $3::triage_level, $4, $5, $6, $7)
        RETURNING *`,
       [id, req.params.id, triageLevel ?? 'B', urgencyScore ?? null,
        JSON.stringify(redFlags ?? []), recommendation ?? null, JSON.stringify(req.body)],
@@ -793,10 +813,10 @@ emergencyExtRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     const alertId = uuidv4();
     await dbQuery(
-      `INSERT INTO alerts (id, consultation_id, alert_type, title, message, metadata, sent)
-       VALUES ($1, $2, 'emergency', 'Ambulance Requested',
-               'Ambulance dispatch requested for emergency', $3, true)`,
-      [alertId, req.params.id, JSON.stringify({ action: 'ambulance_request', originalAlertId: req.params.id })],
+      `INSERT INTO alerts (id, alert_type, title, message, metadata, sent)
+       VALUES ($1, 'emergency', 'Ambulance Requested',
+               'Ambulance dispatch requested for emergency', $2, true)`,
+      [alertId, JSON.stringify({ action: 'ambulance_request', emergencyAlertId: req.params.id })],
     );
     // Try to update emergency_alerts status
     await dbQuery(
@@ -813,12 +833,31 @@ emergencyExtRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     const alertId = uuidv4();
     await dbQuery(
-      `INSERT INTO alerts (id, consultation_id, alert_type, title, message, metadata, sent)
-       VALUES ($1, $2, 'emergency', 'Medical Officer Contacted',
-               'Medical Officer has been notified of emergency', $3, true)`,
-      [alertId, req.params.id, JSON.stringify({ action: 'contact_mo', originalAlertId: req.params.id })],
+      `INSERT INTO alerts (id, alert_type, title, message, metadata, sent)
+       VALUES ($1, 'emergency', 'Medical Officer Contacted',
+               'Medical Officer has been notified of emergency', $2, true)`,
+      [alertId, JSON.stringify({ action: 'contact_mo', emergencyAlertId: req.params.id })],
     );
     res.json({ success: true, data: { alertId, status: 'notified', message: 'Medical Officer notified' } });
+  }),
+);
+
+// POST /emergency/:id/notify-hospital
+emergencyExtRouter.post(
+  '/:id/notify-hospital',
+  asyncHandler(async (req: Request, res: Response) => {
+    const alertId = uuidv4();
+    await dbQuery(
+      `INSERT INTO alerts (id, alert_type, title, message, metadata, sent)
+       VALUES ($1, 'emergency', 'Referral Hospital Notified',
+               'Referral hospital has been notified of incoming emergency patient', $2, true)`,
+      [alertId, JSON.stringify({ action: 'notify_hospital', emergencyAlertId: req.params.id, emergencyType: req.body.emergencyType })],
+    );
+    await dbQuery(
+      `UPDATE emergency_alerts SET status = 'hospital_notified' WHERE id = $1 OR session_id = $1`,
+      [req.params.id],
+    ).catch(() => {});
+    res.json({ success: true, data: { alertId, status: 'hospital_notified', message: 'Referral hospital notified' } });
   }),
 );
 
@@ -852,7 +891,10 @@ trialExtRouter.get(
     const offset = (page - 1) * limit;
 
     const rows = await queryRows(
-      `SELECT id, nct_id, title, brief_summary, plain_summary, conditions, phase, status, sponsor,
+      `SELECT id, nct_id, nct_id AS "nctId", title,
+              brief_summary, brief_summary AS summary,
+              plain_summary, plain_summary AS "plainSummary",
+              conditions, phase, status, sponsor,
               start_date, completion_date, enrollment, locations, eligibility, metadata
        FROM clinical_trials
        ORDER BY last_updated DESC NULLS LAST
@@ -876,14 +918,36 @@ trialExtRouter.get(
     // Try trial_matches table (managed by trial-service) then fall back
     try {
       const rows = await queryRows(
-        `SELECT tm.*, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions, ct.phase, ct.status AS trial_status, ct.eligibility, ct.metadata
+        `SELECT tm.nct_id, tm.composite_score, tm.scores, tm.status AS match_status,
+                ct.id, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions,
+                ct.phase, ct.status, ct.sponsor, ct.eligibility, ct.locations, ct.metadata
          FROM trial_matches tm
-         JOIN clinical_trials ct ON tm.trial_id = ct.id
+         JOIN clinical_trials ct ON tm.nct_id = ct.nct_id
          WHERE tm.patient_id = $1
-         ORDER BY tm.match_score DESC`,
+         ORDER BY tm.composite_score DESC`,
         [patientId],
       );
-      res.json({ success: true, data: rows });
+      // Transform flat rows into nested TrialMatch structure expected by frontend
+      const matches = rows.map((r: Record<string, any>) => ({
+        trial: {
+          id: r.id ?? r.nct_id,
+          nct_id: r.nct_id,
+          nctId: r.nct_id,
+          title: r.title,
+          summary: r.brief_summary,
+          plainSummary: r.plain_summary,
+          phase: r.phase,
+          status: r.status,
+          conditions: r.conditions,
+          sponsor: r.sponsor,
+          eligibility: r.eligibility,
+          locations: r.locations,
+        },
+        matchScore: parseFloat(r.composite_score) || 0,
+        eligible: true,
+        matchReasons: r.scores ? Object.keys(r.scores) : [],
+      }));
+      res.json({ success: true, data: matches });
     } catch {
       // trial_matches table might not exist yet
       res.json({ success: true, data: [] });
@@ -898,16 +962,142 @@ trialExtRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     try {
       const rows = await queryRows(
-        `SELECT tm.*, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions, ct.phase, ct.eligibility, ct.metadata
+        `SELECT tm.nct_id, tm.composite_score, tm.scores, tm.status AS match_status,
+                ct.id, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions,
+                ct.phase, ct.status, ct.sponsor, ct.eligibility, ct.locations, ct.metadata
          FROM trial_matches tm
-         JOIN clinical_trials ct ON tm.trial_id = ct.id
+         JOIN clinical_trials ct ON tm.nct_id = ct.nct_id
          WHERE tm.patient_id = $1
-         ORDER BY tm.match_score DESC`,
+         ORDER BY tm.composite_score DESC`,
         [req.params.patientId],
       );
-      res.json({ success: true, data: rows });
+      const matches = rows.map((r: Record<string, any>) => ({
+        trial: {
+          id: r.id ?? r.nct_id,
+          nct_id: r.nct_id,
+          nctId: r.nct_id,
+          title: r.title,
+          summary: r.brief_summary,
+          plainSummary: r.plain_summary,
+          phase: r.phase,
+          status: r.status,
+          conditions: r.conditions,
+          sponsor: r.sponsor,
+          eligibility: r.eligibility,
+          locations: r.locations,
+        },
+        matchScore: parseFloat(r.composite_score) || 0,
+        eligible: true,
+        matchReasons: r.scores ? Object.keys(r.scores) : [],
+      }));
+      res.json({ success: true, data: matches });
     } catch {
       res.json({ success: true, data: [] });
     }
+  }),
+);
+
+// ─── Patient Health ──────────────────────────────────────────────────────
+
+export const patientHealthRouter: Router = Router();
+patientHealthRouter.use(authenticate as never);
+patientHealthRouter.use(roleRateLimiter as never);
+patientHealthRouter.use(auditLogger as never);
+
+// GET /patient/health/summary
+patientHealthRouter.get(
+  '/summary',
+  asyncHandler(async (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
+    const patientId = authReq.user?.sub;
+
+    // Latest vitals from consultations
+    const vitalsRow = await queryOne(
+      `SELECT vitals FROM consultations
+       WHERE patient_id = $1 AND vitals IS NOT NULL
+       ORDER BY updated_at DESC LIMIT 1`,
+      [patientId ?? null],
+    );
+
+    const vitals = vitalsRow?.vitals || {};
+    const metrics: Array<Record<string, unknown>> = [];
+
+    if (vitals.heartRate) {
+      metrics.push({
+        key: 'heartRate', label: 'Heart Rate', labelHi: 'हृदय गति',
+        value: vitals.heartRate, unit: 'bpm', color: '#ef4444',
+        status: vitals.heartRate > 100 || vitals.heartRate < 60 ? 'warning' : 'normal',
+        lastUpdated: vitalsRow?.updated_at || new Date().toISOString(),
+      });
+    }
+    if (vitals.systolicBp) {
+      metrics.push({
+        key: 'bp', label: 'Blood Pressure', labelHi: 'रक्तचाप',
+        value: `${vitals.systolicBp}/${vitals.diastolicBp || '?'}`, unit: 'mmHg', color: '#3b82f6',
+        status: vitals.systolicBp > 140 ? 'warning' : 'normal',
+        lastUpdated: vitalsRow?.updated_at || new Date().toISOString(),
+      });
+    }
+    if (vitals.spO2) {
+      metrics.push({
+        key: 'spO2', label: 'SpO2', labelHi: 'ऑक्सीजन स्तर',
+        value: vitals.spO2, unit: '%', color: '#10b981',
+        status: vitals.spO2 < 95 ? 'warning' : 'normal',
+        lastUpdated: vitalsRow?.updated_at || new Date().toISOString(),
+      });
+    }
+
+    // Alerts for this patient
+    const alerts = await queryRows(
+      `SELECT id, alert_type, title, message, metadata, acknowledged, created_at AS timestamp
+       FROM alerts WHERE patient_id = $1
+       ORDER BY created_at DESC LIMIT 20`,
+      [patientId ?? null],
+    );
+
+    res.json({
+      success: true,
+      data: {
+        metrics,
+        alerts: alerts.map((a: Record<string, unknown>) => ({
+          id: a.id,
+          metric: a.title,
+          metricHi: a.title,
+          severity: (a.metadata as Record<string, unknown>)?.severity || 'medium',
+          message: a.message,
+          messageHi: a.message,
+          normalRange: '',
+          timestamp: a.timestamp,
+          acknowledged: a.acknowledged,
+        })),
+        devices: [],
+      },
+    });
+  }),
+);
+
+// POST /patient/health/alerts/:alertId/acknowledge
+patientHealthRouter.post(
+  '/alerts/:alertId/acknowledge',
+  asyncHandler(async (req: Request, res: Response) => {
+    await dbQuery(
+      `UPDATE alerts SET acknowledged = true WHERE id = $1`,
+      [req.params.alertId],
+    );
+    res.json({ success: true, data: { id: req.params.alertId, acknowledged: true } });
+  }),
+);
+
+// POST /patient/profile/wearables
+export const patientProfileRouter: Router = Router();
+patientProfileRouter.use(authenticate as never);
+patientProfileRouter.use(roleRateLimiter as never);
+
+patientProfileRouter.post(
+  '/wearables',
+  asyncHandler(async (_req: Request, res: Response) => {
+    // Wearable connection is handled by integration-service;
+    // this is a stub for frontend compatibility
+    res.json({ success: true, data: { connected: true } });
   }),
 );

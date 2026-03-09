@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Optional
@@ -162,7 +163,8 @@ async def _translate_query_to_english(query: str) -> str:
             }
         )
 
-        response = bedrock.invoke_model(
+        response = await asyncio.to_thread(
+            bedrock.invoke_model,
             modelId=settings.bedrock_model_id,
             contentType="application/json",
             accept="application/json",

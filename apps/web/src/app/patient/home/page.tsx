@@ -60,7 +60,7 @@ export default function PatientHomePage() {
 
   // Filter out dismissed trials
   const displayMatches = matches.filter(
-    (m) => !dismissedMatchIds.includes(m.trial.id),
+    (m) => !dismissedMatchIds.includes(m.trial.id ?? m.trial.nct_id ?? ''),
   );
 
   const handleSaveMatch = useCallback(
@@ -70,7 +70,7 @@ export default function PatientHomePage() {
         language === 'hi' ? 'ट्रायल सेव किया गया' : 'Trial saved',
       );
     },
-    [saveMatch, language, message],
+    [saveMatch, language],
   );
 
   const handleDismissMatch = useCallback(
@@ -80,7 +80,7 @@ export default function PatientHomePage() {
         language === 'hi' ? 'ट्रायल हटाया गया' : 'Trial dismissed',
       );
     },
-    [dismissMatch, language, message],
+    [dismissMatch, language],
   );
   const userName = user?.name ?? 'Patient';
 

@@ -142,6 +142,8 @@ async def _process_subscription(sub: Any) -> int:
     """
     from app.services.db import execute, fetch_all
 
+    # asyncpg Record supports [] access but not .get() -- convert to dict
+    sub = dict(sub)
     patient_id = sub.get("patient_id")
     if not patient_id:
         logger.warning("notification_check_missing_patient_id", sub=sub)
@@ -450,23 +452,17 @@ async def _get_patient_email(patient_id: str) -> Optional[str]:
     """Fetch the patient's email address from the database.
 
     Returns the email string, or ``None`` if not found.
+
+    Note: The trial-service schema does not include a ``users`` table.
+    Email lookup requires querying the main ``vaidyah`` database via the
+    API gateway.  For now we log a warning and return ``None`` so email
+    notifications degrade gracefully.  A future enhancement could call
+    the API gateway's ``/api/v1/users/{patient_id}`` endpoint instead.
     """
-    from app.services.db import fetch_one
-
-    row = await fetch_one(
-        """
-        SELECT email
-        FROM patients
-        WHERE patient_id = $1
-        """,
-        patient_id,
-    )
-    if row and row.get("email"):
-        return row["email"]
-
     logger.debug(
-        "notification.patient_email_not_found",
+        "notification.patient_email_not_available",
         patient_id=patient_id,
+        reason="users_table_not_in_trial_service_schema",
     )
     return None
 

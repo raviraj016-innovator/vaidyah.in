@@ -42,6 +42,7 @@ import { useSessionStore, TranscriptEntry } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import api from '@/lib/api/client';
+import { endpoints } from '@/lib/api/endpoints';
 import VoiceBot from '@/components/voice-bot/VoiceBot';
 
 // ---------------------------------------------------------------------------
@@ -282,7 +283,7 @@ function ConsultationPageInner() {
   const handleFetchContradictions = useCallback(async () => {
     setContradictionsLoading(true);
     try {
-      const { data } = await api.post('/api/v1/nlu/contradictions', {
+      const { data } = await api.post(endpoints.nlu.contradictions, {
         conversation_history: currentTranscript.map((e) => ({
           role: e.speaker === 'nurse' ? 'doctor' : e.speaker,
           text: e.text,
@@ -334,7 +335,7 @@ function ConsultationPageInner() {
       }
       addSymptom({ id: value, name: opt.label, severity: 'moderate' });
     },
-    [addSymptom, symptoms, language, message],
+    [addSymptom, symptoms, language],
   );
 
   const handleStartRecording = () => {
@@ -362,7 +363,7 @@ function ConsultationPageInner() {
   const handleFetchSuggestedQuestions = useCallback(async () => {
     setSuggestedLoading(true);
     try {
-      const { data } = await api.post('/api/v1/nlu/followup-questions', {
+      const { data } = await api.post(endpoints.nlu.followupQuestions, {
         conversation_history: currentTranscript.map((e) => ({
           role: e.speaker === 'nurse' ? 'doctor' : e.speaker,
           text: e.text,
@@ -409,7 +410,7 @@ function ConsultationPageInner() {
           : 'Question added to transcript',
       );
     },
-    [addTranscriptEntry, language, message],
+    [addTranscriptEntry, language],
   );
 
   // Fetch ABDM health record
@@ -417,7 +418,8 @@ function ConsultationPageInner() {
     if (!patient?.abdmId && !patient?.id) return;
     setAbdmLoading(true);
     try {
-      const { data } = await api.get(`/api/v1/integration/abdm/health-record/${patient.abdmId ?? patient.id}`);
+      const abdmIdentifier = patient.abdmId ?? patient.id ?? '';
+      const { data } = await api.get(endpoints.integration.abdmHealthRecord(abdmIdentifier));
       setAbdmData(data?.record ?? data);
     } catch (err) {
       console.error('Failed to fetch ABDM health record:', err);

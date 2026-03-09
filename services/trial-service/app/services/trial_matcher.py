@@ -340,13 +340,13 @@ async def match_trials_for_patient(
         statuses=[TrialStatus.RECRUITING, TrialStatus.ENROLLING_BY_INVITATION],
         page_size=100,
     )
-    search_resp = os_client.search_trials(search_req)
+    search_resp = await os_client.search_trials(search_req)
 
     candidate_nct_ids = [t.nct_id for t in search_resp.trials]
     scored_matches: list[TrialMatchScore] = []
 
     for nct_id in candidate_nct_ids:
-        trial_doc = os_client.get_trial(nct_id)
+        trial_doc = await os_client.get_trial(nct_id)
         if trial_doc is None:
             continue
 

@@ -148,7 +148,7 @@ sessionRouter.post(
       throw AppError.forbidden('Patients can only submit voice for their own sessions');
     }
 
-    const upstream = await forwardRequest('voice', req, `/api/v1/sessions/${id}/voice`);
+    const upstream = await forwardRequest('voice', req, `/api/v1/voice/transcribe`);
 
     res.status(upstream.statusCode).json(upstream.body);
   }),
@@ -214,7 +214,7 @@ sessionRouter.post(
       throw AppError.notFound('Session');
     }
 
-    const upstream = await forwardRequest('clinical', req, `/api/v1/sessions/${id}/summary`);
+    const upstream = await forwardRequest('clinical', req, `/api/v1/soap`);
 
     res.status(upstream.statusCode).json(upstream.body);
   }),
@@ -311,7 +311,7 @@ triageRouter.post(
     const upstream = await forwardRequest(
       'clinical',
       req,
-      `/api/v1/triage/${sessionId}`,
+      `/api/v1/triage`,
     );
 
     if (upstream.statusCode >= 200 && upstream.statusCode < 300) {
@@ -321,26 +321,26 @@ triageRouter.post(
         ? (triageData as any).data
         : undefined;
 
-      // Map numeric urgency_score (0-100) to numeric triage_level (1-5)
-      // 1 = emergent, 2 = urgent, 3 = soon, 4 = routine, 5 = non-urgent
-      const VALID_TRIAGE_LEVELS = new Set([1, 2, 3, 4, 5]);
-      let triageLevel: number | undefined;
+      // Extract triage_level from clinical-service response (enum: 'A'-'E')
+      // or derive from urgency_score if triage_level not present
+      const VALID_TRIAGE_LEVELS = new Set(['A', 'B', 'C', 'D', 'E']);
+      let triageLevel: string | undefined;
       if (dataObj) {
-        if (typeof dataObj.level === 'number' && VALID_TRIAGE_LEVELS.has(dataObj.level)) {
-          triageLevel = dataObj.level;
+        if (typeof dataObj.triage_level === 'string' && VALID_TRIAGE_LEVELS.has(dataObj.triage_level)) {
+          triageLevel = dataObj.triage_level;
         } else if (typeof dataObj.urgency_score === 'number' && Number.isFinite(dataObj.urgency_score)) {
           const score = dataObj.urgency_score;
-          if (score >= 80) triageLevel = 1;
-          else if (score >= 60) triageLevel = 2;
-          else if (score >= 40) triageLevel = 3;
-          else if (score >= 20) triageLevel = 4;
-          else triageLevel = 5;
+          if (score >= 80) triageLevel = 'A';
+          else if (score >= 60) triageLevel = 'B';
+          else if (score >= 40) triageLevel = 'C';
+          else if (score >= 20) triageLevel = 'D';
+          else triageLevel = 'E';
         }
       }
 
       if (triageLevel) {
         await dbQuery(
-          `UPDATE consultation_sessions SET triage_level = $1, updated_at = $2 WHERE id = $3`,
+          `UPDATE consultation_sessions SET triage_level = $1::triage_level, updated_at = $2 WHERE id = $3`,
           [triageLevel, new Date().toISOString(), sessionId],
         );
         await cacheDel(`session:${sessionId}`);
@@ -385,7 +385,7 @@ emergencyRouter.post(
       ],
     );
 
-    const upstream = await forwardRequest('clinical', req, '/api/v1/emergency/alert', {
+    const upstream = await forwardRequest('clinical', req, '/api/v1/triage/emergency', {
       body: { ...req.body, alertId },
     });
 
@@ -424,7 +424,7 @@ trialsRouter.get(
   '/search',
   validate(...trialSearchRules),
   asyncHandler(async (req: Request, res: Response) => {
-    const upstream = await forwardRequest('trial', req, '/api/v1/trials/search');
+    const upstream = await forwardRequest('trial', req, '/api/v1/search');
     res.status(upstream.statusCode).json(upstream.body);
   }),
 );
@@ -434,7 +434,7 @@ trialsRouter.get(
   validate(uuidOrNctParam('id')),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const upstream = await forwardRequest('trial', req, `/api/v1/trials/${id}`);
+    const upstream = await forwardRequest('trial', req, `/api/v1/search/${id}`);
     res.status(upstream.statusCode).json(upstream.body);
   }),
 );
@@ -446,7 +446,7 @@ trialsRouter.post(
   ),
   requireRole('doctor', 'admin') as never,
   asyncHandler(async (req: Request, res: Response) => {
-    const upstream = await forwardRequest('trial', req, '/api/v1/trials/match');
+    const upstream = await forwardRequest('trial', req, '/api/v1/match');
     res.status(upstream.statusCode).json(upstream.body);
   }),
 );
@@ -493,20 +493,31 @@ trialsRouter.post(
       },
     );
     proxyReq.on('error', () => {
-      res.status(502).json({ success: false, error: 'Trial service unavailable' });
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, error: 'Trial service unavailable' });
+      }
     });
     req.pipe(proxyReq);
   }),
 );
 
-// Express interest in a trial
+// Express interest in a trial — handled locally (no downstream service endpoint)
 trialsRouter.post(
   '/:id/interest',
   validate(uuidOrNctParam('id')),
   asyncHandler(async (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
     const { id } = req.params;
-    const upstream = await forwardRequest('trial', req, `/api/v1/trials/${id}/interest`);
-    res.status(upstream.statusCode).json(upstream.body);
+    const patientId = authReq.user?.sub;
+    if (!patientId) throw AppError.unauthorized('Authentication required');
+
+    await queryOne(
+      `INSERT INTO audit_log (id, user_id, action, resource_type, resource_id, details)
+       VALUES ($1, NULL, 'trial_interest', 'trial', NULL, $2)`,
+      [uuidv4(), JSON.stringify({ source: 'patient_portal', trialId: id, patientId })],
+    );
+
+    res.json({ success: true, data: { trialId: id, patientId, status: 'interest_recorded' } });
   }),
 );
 

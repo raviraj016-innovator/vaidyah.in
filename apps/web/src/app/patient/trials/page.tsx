@@ -91,19 +91,19 @@ export default function TrialsSearchPage() {
       const q = searchQuery.toLowerCase();
       results = results.filter(
         (t) =>
-          t.title.toLowerCase().includes(q) ||
-          (t.titleHi?.toLowerCase().includes(q)) ||
-          t.summary.toLowerCase().includes(q) ||
-          (t.summaryHi?.toLowerCase().includes(q)) ||
-          t.conditions.some((c) => c.toLowerCase().includes(q)) ||
-          t.sponsor.toLowerCase().includes(q),
+          (t.title ?? '').toLowerCase().includes(q) ||
+          t.titleHi?.toLowerCase().includes(q) ||
+          (t.summary ?? '').toLowerCase().includes(q) ||
+          t.summaryHi?.toLowerCase().includes(q) ||
+          t.conditions?.some((c) => c?.toLowerCase().includes(q)) ||
+          (t.sponsor ?? '').toLowerCase().includes(q),
       );
     }
 
     if (conditionFilter) {
       results = results.filter((t) =>
-        t.conditions.some((c) =>
-          c.toLowerCase().includes(conditionFilter.toLowerCase()),
+        t.conditions?.some((c) =>
+          c?.toLowerCase().includes(conditionFilter.toLowerCase()),
         ),
       );
     }
@@ -122,8 +122,8 @@ export default function TrialsSearchPage() {
         (t) =>
           t.locations?.some(
             (l) =>
-              l.city.toLowerCase().includes(loc) ||
-              l.state.toLowerCase().includes(loc),
+              (l.city ?? '').toLowerCase().includes(loc) ||
+              (l.state ?? '').toLowerCase().includes(loc),
           ) ?? false,
       );
     }

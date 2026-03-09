@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     bedrock_max_tokens: int = 2048
     bedrock_temperature: float = 0.3
 
+    # ---------- AWS SageMaker (legacy matching endpoint, now using Bedrock) ----------
+    sagemaker_matching_endpoint: Optional[str] = None
+    sagemaker_region: str = "ap-south-1"
+
     # ---------- AWS S3 ----------
     s3_bucket: str = "vaidyah-trial-data"
     s3_region: str = "ap-south-1"
@@ -68,7 +72,7 @@ class Settings(BaseSettings):
 
     # ---------- JWT / Auth ----------
     jwt_secret: str = Field(
-        default="", alias="JWT_SECRET"
+        default="", alias="JWT_SECRET_KEY"
     )
     jwt_algorithm: str = "HS256"
     jwt_audience: str = "vaidyah"
@@ -82,9 +86,9 @@ class Settings(BaseSettings):
     def _check_production_secrets(self) -> "Settings":
         if self.environment == "production":
             import os
-            if not os.environ.get("JWT_SECRET"):
+            if not os.environ.get("JWT_SECRET_KEY"):
                 raise ValueError(
-                    "JWT_SECRET environment variable must be set explicitly "
+                    "JWT_SECRET_KEY environment variable must be set explicitly "
                     "in production to ensure consistency across processes."
                 )
             if self.database_url == "postgresql+asyncpg://localhost:5432/vaidyah_trials":

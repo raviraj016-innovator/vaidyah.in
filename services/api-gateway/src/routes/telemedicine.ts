@@ -70,3 +70,39 @@ telemedicineRouter.get(
     res.status(result.statusCode).json(result.body);
   }),
 );
+
+// POST /telemedicine/meetings/:id/token — Refresh meeting token
+telemedicineRouter.post(
+  '/meetings/:consultationId/token',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await forwardRequest('telemedicine', req, `/meetings/${req.params.consultationId}/token`);
+    res.status(result.statusCode).json(result.body);
+  }),
+);
+
+// GET /telemedicine/meetings/:id/attendees — List attendees
+telemedicineRouter.get(
+  '/meetings/:consultationId/attendees',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await forwardRequest('telemedicine', req, `/meetings/${req.params.consultationId}/attendees`);
+    res.status(result.statusCode).json(result.body);
+  }),
+);
+
+// POST /telemedicine/facial-analysis — Facial analysis for telemedicine
+telemedicineRouter.post(
+  '/facial-analysis',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await forwardRequest('telemedicine', req, '/facial-analysis');
+    res.status(result.statusCode).json(result.body);
+  }),
+);
+
+// POST /telemedicine/audio — Audio processing for telemedicine
+telemedicineRouter.post(
+  '/audio',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await forwardRequest('telemedicine', req, '/audio');
+    res.status(result.statusCode).json(result.body);
+  }),
+);

@@ -121,8 +121,8 @@ export default function CentersPage() {
     return centers.filter((c) => {
       const matchSearch =
         !search ||
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.district.toLowerCase().includes(search.toLowerCase());
+        (c.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+        (c.district ?? '').toLowerCase().includes(search.toLowerCase());
       const matchState = !stateFilter || c.state === stateFilter;
       const matchStatus = !statusFilter || c.status === statusFilter;
       return matchSearch && matchState && matchStatus;
@@ -176,10 +176,11 @@ export default function CentersPage() {
         }
       } else {
         try {
-          await api.post(endpoints.centers.create, values);
+          const createRes = await api.post(endpoints.centers.create, values);
+          const created = createRes.data?.data ?? createRes.data;
           const newCenter: HealthCenter = {
             ...values,
-            id: `hc-${Date.now()}`,
+            id: created?.id ?? `hc-${Date.now()}`,
             staffCount: 0,
             dailyAvg: 0,
             totalPatients: 0,
@@ -207,7 +208,7 @@ export default function CentersPage() {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      sorter: (a, b) => (a.name ?? '').localeCompare(b.name ?? ''),
       render: (name: string, record) => (
         <div>
           <Text strong>{name}</Text>
@@ -229,7 +230,7 @@ export default function CentersPage() {
           </Text>
         </Space>
       ),
-      sorter: (a, b) => a.district.localeCompare(b.district),
+      sorter: (a, b) => (a.district ?? '').localeCompare(b.district ?? ''),
     },
     {
       title: 'Status',
@@ -337,9 +338,9 @@ export default function CentersPage() {
   // Expandable row
   const expandedRowRender = (record: HealthCenter) => (
     <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }} bordered>
-      <Descriptions.Item label="Total Patients">{record.totalPatients.toLocaleString()}</Descriptions.Item>
-      <Descriptions.Item label="Active Since">{record.activeSince}</Descriptions.Item>
-      <Descriptions.Item label="Last Sync">{record.lastSync}</Descriptions.Item>
+      <Descriptions.Item label="Total Patients">{(record.totalPatients ?? 0).toLocaleString()}</Descriptions.Item>
+      <Descriptions.Item label="Active Since">{record.activeSince ?? 'N/A'}</Descriptions.Item>
+      <Descriptions.Item label="Last Sync">{record.lastSync ?? 'N/A'}</Descriptions.Item>
       <Descriptions.Item label="Coordinates">
         {record.latitude != null && record.longitude != null
           ? `${record.latitude.toFixed(4)}, ${record.longitude.toFixed(4)}`

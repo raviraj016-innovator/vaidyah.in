@@ -59,11 +59,11 @@ function matchCriterion(criterion: string, patient: PatientUser | null): Eligibi
   }
   if (/age\s*(?:>=?|at least|over|above)\s*(\d+)/.test(lc) && patient.age != null) {
     const m = lc.match(/age\s*(?:>=?|at least|over|above)\s*(\d+)/);
-    return patient.age >= parseInt(m![1]!, 10) ? 'met' : 'not_met';
+    if (m?.[1]) return patient.age >= parseInt(m[1], 10) ? 'met' : 'not_met';
   }
   if (/age\s*(?:<=?|under|below)\s*(\d+)/.test(lc) && patient.age != null) {
     const m = lc.match(/age\s*(?:<=?|under|below)\s*(\d+)/);
-    return patient.age <= parseInt(m![1]!, 10) ? 'met' : 'not_met';
+    if (m?.[1]) return patient.age <= parseInt(m[1], 10) ? 'met' : 'not_met';
   }
 
   // Gender checks (exclusion: "pregnant or breastfeeding women")
@@ -78,7 +78,7 @@ function matchCriterion(criterion: string, patient: PatientUser | null): Eligibi
 
   // Condition matching (inclusion: "diagnosed with X")
   if (patient.conditions?.length) {
-    const patConds = patient.conditions.map((c) => c.toLowerCase());
+    const patConds = patient.conditions.filter((c): c is string => !!c).map((c) => c.toLowerCase());
     for (const cond of patConds) {
       if (lc.includes(cond) || cond.split(' ').some((w) => w.length > 4 && lc.includes(w))) {
         return 'met';
@@ -88,7 +88,7 @@ function matchCriterion(criterion: string, patient: PatientUser | null): Eligibi
 
   // Medication matching (exclusion: "current use of X")
   if (/current use of|currently taking|on\s+\w+\s+therapy/.test(lc) && patient.medications?.length) {
-    const patMeds = patient.medications.map((m) => m.toLowerCase());
+    const patMeds = patient.medications.filter((m): m is string => !!m).map((m) => m.toLowerCase());
     for (const med of patMeds) {
       if (lc.includes(med)) return 'not_met';
     }
@@ -173,6 +173,45 @@ function getMapUrl(locations: Array<{ city: string }>) {
 
 
 // ---------------------------------------------------------------------------
+// Normalize snake_case trial-service response to camelCase frontend fields
+// ---------------------------------------------------------------------------
+
+function normalizeTrial(raw: any): ClinicalTrial {
+  if (!raw) return raw;
+  const t = { ...raw };
+  // Top-level fields
+  if (!t.id && t.nct_id) t.id = t.nct_id;
+  if (!t.nctId) t.nctId = t.nct_id;
+  if (!t.summary) t.summary = t.brief_summary ?? '';
+  if (!t.plainSummary) t.plainSummary = t.plain_summary ?? t.plain_language_summary;
+  if (!t.status && t.overall_status) t.status = t.overall_status;
+  if (!t.sponsor) t.sponsor = t.sponsor ?? '';
+  // Eligibility
+  if (t.eligibility) {
+    const e = { ...t.eligibility };
+    if (!e.ageMin && e.minimum_age_years != null) e.ageMin = e.minimum_age_years;
+    if (!e.ageMin && e.age_min != null) e.ageMin = e.age_min;
+    if (!e.ageMax && e.maximum_age_years != null) e.ageMax = e.maximum_age_years;
+    if (!e.ageMax && e.age_max != null) e.ageMax = e.age_max;
+    if (!e.inclusion && e.inclusion_criteria) e.inclusion = e.inclusion_criteria;
+    if (!e.exclusion && e.exclusion_criteria) e.exclusion = e.exclusion_criteria;
+    t.eligibility = e;
+  }
+  // Locations
+  if (Array.isArray(t.locations)) {
+    t.locations = t.locations.map((loc: any) => ({
+      ...loc,
+      facility: loc.facility ?? loc.facility_name ?? '',
+    }));
+  }
+  // Contact
+  if (!t.contact && Array.isArray(t.contacts) && t.contacts.length > 0) {
+    t.contact = t.contacts[0];
+  }
+  return t as ClinicalTrial;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -189,7 +228,10 @@ export default function TrialDetailPage() {
 
   const { data: trial } = useQuery({
     queryKey: ['patient', 'trial', trialId],
-    queryFn: fetchWithFallback<ClinicalTrial>(endpoints.trials.detail(trialId)),
+    queryFn: async () => {
+      const raw = await fetchWithFallback<ClinicalTrial>(endpoints.trials.detail(trialId))();
+      return normalizeTrial(raw);
+    },
     staleTime: 60_000,
     enabled: !!trialId,
   });
@@ -204,7 +246,7 @@ export default function TrialDetailPage() {
         `${endpoints.trials.search}?conditions=${encodeURIComponent(firstCondition)}`,
       );
       const data = await fn();
-      const list = data.results ?? data.trials ?? [];
+      const list = (data.results ?? data.trials ?? []).map(normalizeTrial);
       return list.filter((t) => t.id !== trialId).slice(0, 4);
     },
     staleTime: 120_000,
@@ -213,7 +255,7 @@ export default function TrialDetailPage() {
 
   // Build map URL for locations
   const mapUrl = useMemo(
-    () => (trial?.locations?.length ? getMapUrl(trial.locations) : null),
+    () => (trial?.locations?.length ? getMapUrl(trial.locations as { city: string }[]) : null),
     [trial?.locations],
   );
 
@@ -248,7 +290,7 @@ export default function TrialDetailPage() {
       okText: language === 'hi' ? 'हाँ, भेजें' : 'Yes, Send',
       cancelText: language === 'hi' ? 'रद्द करें' : 'Cancel',
       onOk: async () => {
-        try { await api.post(`/trials/${trialId}/interest`); } catch (err) { console.error('Failed to express interest:', err); message.error(language === 'hi' ? 'रुचि भेजने में विफल' : 'Failed to send interest'); return; }
+        try { await api.post(endpoints.trials.expressInterest(trialId)); } catch (err) { console.error('Failed to express interest:', err); message.error(language === 'hi' ? 'रुचि भेजने में विफल' : 'Failed to send interest'); return; }
         setInterestSent(true);
         message.success(
           language === 'hi'
@@ -294,7 +336,7 @@ export default function TrialDetailPage() {
               {trial.nctId}
             </Tag>
           )}
-          {trial.conditions.map((c) => (
+          {(trial.conditions ?? []).map((c) => (
             <Tag key={c} color="purple">
               {c}
             </Tag>
@@ -552,7 +594,7 @@ export default function TrialDetailPage() {
           )}
 
           <List
-            dataSource={trial.locations}
+            dataSource={trial.locations ?? []}
             renderItem={(loc) => (
               <List.Item>
                 <List.Item.Meta
@@ -622,7 +664,7 @@ export default function TrialDetailPage() {
                   <Tag color="green" style={{ fontSize: 11, margin: 0 }}>{st.status}</Tag>
                 </Space>
                 <div style={{ marginBottom: 8 }}>
-                  {st.conditions.slice(0, 2).map((c) => (
+                  {(st.conditions ?? []).slice(0, 2).map((c) => (
                     <Tag key={c} color="purple" style={{ fontSize: 11, margin: '0 4px 4px 0' }}>{c}</Tag>
                   ))}
                 </div>

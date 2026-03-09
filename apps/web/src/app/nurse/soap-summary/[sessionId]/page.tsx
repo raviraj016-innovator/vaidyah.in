@@ -60,7 +60,7 @@ export default function SOAPSummaryPage() {
   // Fetch SOAP note from API
   const { data: apiSoapData } = useQuery({
     queryKey: ['nurse', 'soap', sessionId],
-    queryFn: fetchWithFallback<{ success: boolean; data: any }>(
+    queryFn: fetchWithFallback<any>(
       `/sessions/${sessionId}/soap`,
     ),
     staleTime: 60_000,
@@ -68,7 +68,7 @@ export default function SOAPSummaryPage() {
 
   // Apply API data to store
   useEffect(() => {
-    const apiSoap = apiSoapData?.data;
+    const apiSoap = apiSoapData;
     if (apiSoap && !storeSoap) {
       const parsed: SOAPNote = {
         subjective: typeof apiSoap.subjective === 'string' ? (() => { try { return JSON.parse(apiSoap.subjective); } catch { return { patientNarrative: apiSoap.subjective }; } })() : apiSoap.subjective,
@@ -103,22 +103,22 @@ export default function SOAPSummaryPage() {
         objective: {
           vitalSigns: values.vitalSigns,
           physicalExamination: values.physicalExamination,
-          observations: values.observations.split('\n').filter(Boolean),
+          observations: (values.observations ?? '').split('\n').filter(Boolean),
         },
         assessment: {
           primaryDiagnosis: values.primaryDiagnosis,
-          differentialDiagnoses: values.differentialDiagnoses
+          differentialDiagnoses: (values.differentialDiagnoses ?? '')
             .split('\n')
             .filter(Boolean),
           severity: values.severity,
           clinicalReasoning: values.clinicalReasoning,
         },
         plan: {
-          medications: values.medications.split('\n').filter(Boolean),
-          investigations: values.investigations.split('\n').filter(Boolean),
-          referrals: values.referrals.split('\n').filter(Boolean),
+          medications: (values.medications ?? '').split('\n').filter(Boolean),
+          investigations: (values.investigations ?? '').split('\n').filter(Boolean),
+          referrals: (values.referrals ?? '').split('\n').filter(Boolean),
           followUp: values.followUp,
-          patientEducation: values.patientEducation.split('\n').filter(Boolean),
+          patientEducation: (values.patientEducation ?? '').split('\n').filter(Boolean),
         },
       };
 
@@ -134,7 +134,7 @@ export default function SOAPSummaryPage() {
         },
       });
     },
-    [setSoapNote, setSoapStatus, soapNote, language, message, saveSoapMutation],
+    [setSoapNote, setSoapStatus, soapNote, language, saveSoapMutation],
   );
 
   if (!patient) {

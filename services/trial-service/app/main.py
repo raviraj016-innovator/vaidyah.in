@@ -187,6 +187,24 @@ app.include_router(csv_ingest.router, prefix=settings.api_prefix, tags=["CSV Imp
 app.include_router(summaries.router, prefix=settings.api_prefix, tags=["Summaries"])
 
 
+# ---------- Global Exception Handler ----------
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "unhandled_exception",
+        path=request.url.path,
+        method=request.method,
+        error=str(exc),
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_server_error", "detail": "An unexpected error occurred."},
+    )
+
+
 # ---------- Health check ----------
 @app.get("/health", tags=["Health"])
 async def health_check() -> dict:

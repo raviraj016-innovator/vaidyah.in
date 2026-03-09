@@ -61,6 +61,9 @@ const ROLE_OPTIONS = [
   { label: 'Super Admin', value: 'super_admin' },
   { label: 'State Admin', value: 'state_admin' },
   { label: 'District Admin', value: 'district_admin' },
+  { label: 'Center Admin', value: 'center_admin' },
+  { label: 'Doctor', value: 'doctor' },
+  { label: 'Nurse', value: 'nurse' },
   { label: 'Viewer', value: 'viewer' },
   { label: 'Senior Nurse', value: 'senior_nurse' },
   { label: 'Nurse', value: 'nurse' },
@@ -143,8 +146,8 @@ export default function UsersPage() {
     return users.filter((u) => {
       const matchSearch =
         !search ||
-        u.name.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase());
+        (u.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+        (u.email ?? '').toLowerCase().includes(search.toLowerCase());
       const matchRole = !roleFilter || u.role === roleFilter;
       const matchCenter = !centerFilter || u.centerId === centerFilter;
       return matchSearch && matchRole && matchCenter;
@@ -168,7 +171,7 @@ export default function UsersPage() {
     const user = users.find((u) => u.id === id);
     const newStatus = user?.status === 'active' ? 'inactive' : 'active';
     try {
-      await api.patch(endpoints.users.update(id), { status: newStatus });
+      await api.put(endpoints.users.update(id), { active: newStatus === 'active' });
       setUsers((prev) =>
         prev.map((u) => (u.id === id ? { ...u, status: newStatus } : u)),
       );
@@ -200,10 +203,11 @@ export default function UsersPage() {
         }
       } else {
         try {
-          await api.post(endpoints.users.create, values);
+          const createRes = await api.post(endpoints.users.create, values);
+          const created = createRes.data?.data ?? createRes.data;
           const newUser: UserRecord = {
             ...values,
-            id: `u-${Date.now()}`,
+            id: created?.id ?? `u-${Date.now()}`,
             center: centerName,
             lastActive: 'Never',
             status: 'active',
@@ -227,7 +231,7 @@ export default function UsersPage() {
     {
       title: 'Name',
       key: 'name',
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      sorter: (a, b) => (a.name ?? '').localeCompare(b.name ?? ''),
       render: (_, record) => (
         <Space>
           <Avatar

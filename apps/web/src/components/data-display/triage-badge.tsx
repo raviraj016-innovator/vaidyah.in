@@ -15,7 +15,7 @@ const TRIAGE_CONFIG = {
 };
 
 export function TriageBadge({ category, label, size = 'default' }: TriageBadgeProps) {
-  const config = TRIAGE_CONFIG[category];
+  const config = TRIAGE_CONFIG[category] ?? { color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb', label: 'Unknown' };
   const fontSize = size === 'large' ? 16 : size === 'small' ? 11 : 13;
   const padding = size === 'large' ? '4px 16px' : size === 'small' ? '0 6px' : '2px 10px';
 

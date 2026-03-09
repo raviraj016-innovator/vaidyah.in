@@ -33,6 +33,8 @@ import { useTranslation } from '@/lib/i18n/use-translation';
 import { useTrialStore } from '@/stores/trial-store';
 import { LanguageSwitcher } from '@/components/layout/language-switcher';
 import { PageHeader } from '@/components/ui/page-header';
+import { authApi } from '@/lib/api/client';
+import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Editable Tag List Component
@@ -166,55 +168,93 @@ export default function PatientProfilePage() {
     });
   }, [logout, language, modal]);
 
+  // Persist profile changes to backend
+  const syncProfile = useCallback(
+    (updatedConditions: string[], updatedMedications: string[], updatedAllergies: string[]) => {
+      authApi.patch(endpoints.auth.me + '/profile', {
+        medical_history: {
+          conditions: updatedConditions,
+          medications: updatedMedications,
+        },
+        allergies: updatedAllergies,
+      }).catch((err) => console.error('Failed to sync profile:', err));
+    },
+    [],
+  );
+
   const handleAddCondition = useCallback(
     (item: string) => {
-      setConditions((prev) => [...prev, item]);
+      setConditions((prev) => {
+        const next = [...prev, item];
+        syncProfile(next, medications, allergies);
+        return next;
+      });
       message.success(
         language === 'hi' ? 'स्थिति जोड़ी गई' : 'Condition added',
       );
     },
-    [language, message],
+    [language, medications, allergies, syncProfile],
   );
 
   const handleRemoveCondition = useCallback(
     (item: string) => {
-      setConditions((prev) => prev.filter((c) => c !== item));
+      setConditions((prev) => {
+        const next = prev.filter((c) => c !== item);
+        syncProfile(next, medications, allergies);
+        return next;
+      });
     },
-    [],
+    [medications, allergies, syncProfile],
   );
 
   const handleAddMedication = useCallback(
     (item: string) => {
-      setMedications((prev) => [...prev, item]);
+      setMedications((prev) => {
+        const next = [...prev, item];
+        syncProfile(conditions, next, allergies);
+        return next;
+      });
       message.success(
         language === 'hi' ? 'दवा जोड़ी गई' : 'Medication added',
       );
     },
-    [language, message],
+    [language, conditions, allergies, syncProfile],
   );
 
   const handleRemoveMedication = useCallback(
     (item: string) => {
-      setMedications((prev) => prev.filter((m) => m !== item));
+      setMedications((prev) => {
+        const next = prev.filter((m) => m !== item);
+        syncProfile(conditions, next, allergies);
+        return next;
+      });
     },
-    [],
+    [conditions, allergies, syncProfile],
   );
 
   const handleAddAllergy = useCallback(
     (item: string) => {
-      setAllergies((prev) => [...prev, item]);
+      setAllergies((prev) => {
+        const next = [...prev, item];
+        syncProfile(conditions, medications, next);
+        return next;
+      });
       message.success(
         language === 'hi' ? 'एलर्जी जोड़ी गई' : 'Allergy added',
       );
     },
-    [language, message],
+    [language, conditions, medications, syncProfile],
   );
 
   const handleRemoveAllergy = useCallback(
     (item: string) => {
-      setAllergies((prev) => prev.filter((a) => a !== item));
+      setAllergies((prev) => {
+        const next = prev.filter((a) => a !== item);
+        syncProfile(conditions, medications, next);
+        return next;
+      });
     },
-    [],
+    [conditions, medications, syncProfile],
   );
 
   return (

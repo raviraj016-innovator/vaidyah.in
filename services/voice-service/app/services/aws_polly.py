@@ -51,7 +51,7 @@ VOICE_MAP: dict[str, dict[str, str]] = {
     "doi-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
     "mni-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
     "sat-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
-    "bo-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
+    "brx-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
     "sa-IN": {"voice_id": "Kajal", "engine": "generative", "gender": "Female"},
 }
 

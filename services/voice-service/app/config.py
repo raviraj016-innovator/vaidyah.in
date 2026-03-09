@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     )
     prosody_fallback_to_rules: bool = True
 
+    # --- SageMaker (legacy prosody endpoint, now using Bedrock) ---
+    sagemaker_prosody_endpoint: Optional[str] = Field(
+        default=None, alias="SAGEMAKER_PROSODY_ENDPOINT"
+    )
+
     # --- Auth / JWT ---
     jwt_secret_key: str = Field(
         default="",

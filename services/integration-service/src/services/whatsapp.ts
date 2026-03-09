@@ -448,7 +448,7 @@ export class WhatsAppService {
               await query(
                 `INSERT INTO whatsapp_messages (id, phone_number, direction, message_type, content, language, status, whatsapp_message_id, sent_at, created_at)
                  VALUES ($1, $2, 'inbound', $3, $4, 'en', 'delivered', $5, to_timestamp($6::bigint), NOW())
-                 ON CONFLICT (whatsapp_message_id) DO NOTHING`,
+                 ON CONFLICT (whatsapp_message_id) WHERE whatsapp_message_id IS NOT NULL DO NOTHING`,
                 [
                   inboundId,
                   message.from,

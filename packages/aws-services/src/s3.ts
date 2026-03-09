@@ -47,6 +47,8 @@ function getBucketName(type: S3BucketType): string {
       return process.env.S3_DOCUMENTS_BUCKET || `${prefix}-${env}-clinical-documents`;
     case 'medical-images':
       return process.env.S3_IMAGES_BUCKET || `${prefix}-${env}-medical-images`;
+    default:
+      throw new Error(`Unknown S3 bucket type: ${type satisfies never}`);
   }
 }
 
@@ -153,6 +155,9 @@ export async function downloadObject(
   const { GetObjectCommand } = await import('@aws-sdk/client-s3');
 
   const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!result.Body) {
+    throw new Error(`S3 object body is empty: ${bucket}/${key}`);
+  }
   const chunks: Uint8Array[] = [];
   for await (const chunk of result.Body) {
     chunks.push(chunk);

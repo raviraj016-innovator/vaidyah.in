@@ -291,7 +291,7 @@ export default function TelemedicinePage() {
         camPub.track.attach(localVideoRef.current);
       }
     },
-    [language, message, attachRemoteTrack],
+    [language, attachRemoteTrack],
   );
 
   // --------------------------------------------------------------------------
@@ -426,7 +426,7 @@ export default function TelemedicinePage() {
         router.push(`/nurse/consultation/${consultationId}`);
       },
     });
-  }, [consultationId, language, message, modal, router]);
+  }, [consultationId, language, router]);
 
   // --------------------------------------------------------------------------
   // Reconnect
@@ -745,7 +745,7 @@ export default function TelemedicinePage() {
                   <div key={seg.id} style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                       <Tag
-                        color={seg.speaker.toLowerCase().includes('doctor') || seg.speaker.toLowerCase().includes('nurse') ? 'blue' : 'green'}
+                        color={(seg.speaker ?? '').toLowerCase().includes('doctor') || (seg.speaker ?? '').toLowerCase().includes('nurse') ? 'blue' : 'green'}
                         style={{ fontSize: 11 }}
                       >
                         {seg.speaker}

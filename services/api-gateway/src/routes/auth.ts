@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { asyncHandler, AppError } from '../middleware/errorHandler';
 import { createStrictRateLimiter } from '../middleware/rateLimiter';
 import { queryOne, queryRows, query as dbQuery } from '../services/db';
-// Types available if needed: ApiResponse
+import { sendSms } from '@vaidyah/aws-services';
 
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
 const JWT_SECRET: string = process.env.JWT_SECRET;
@@ -20,8 +20,8 @@ const ALL_ADMIN_PERMISSIONS = [
 ];
 
 function signTokens(payload: Record<string, unknown>) {
-  const access_token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES, issuer: 'vaidyah-auth' });
-  const refresh_token = jwt.sign({ sub: payload.sub, type: 'refresh' }, JWT_SECRET, { expiresIn: REFRESH_EXPIRES, issuer: 'vaidyah-auth' });
+  const access_token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES, issuer: 'vaidyah-auth', audience: 'vaidyah' });
+  const refresh_token = jwt.sign({ sub: payload.sub, type: 'refresh' }, JWT_SECRET, { expiresIn: REFRESH_EXPIRES, issuer: 'vaidyah-auth', audience: 'vaidyah' });
   return { access_token, refresh_token };
 }
 
@@ -52,8 +52,8 @@ authRouter.post(
          FROM users WHERE email = $1 AND role IN ('super_admin', 'state_admin', 'district_admin', 'center_admin', 'doctor') AND active = true`,
         [email],
       );
-      // Dev fallback: return first admin user
-      if (!dbUser) {
+      // Dev fallback: return first admin user (production requires exact match)
+      if (!dbUser && process.env.NODE_ENV !== 'production') {
         dbUser = await queryOne(
           `SELECT id, name, email, role, center_id, specialization
            FROM users WHERE role IN ('super_admin', 'state_admin', 'district_admin', 'center_admin', 'doctor') AND active = true LIMIT 1`,
@@ -70,7 +70,8 @@ authRouter.post(
          WHERE (u.email = $1 OR u.phone = $1) AND u.role = 'nurse' AND u.active = true`,
         [lookup],
       );
-      if (!dbUser) {
+      // Dev fallback: return first nurse (production requires exact match)
+      if (!dbUser && process.env.NODE_ENV !== 'production') {
         dbUser = await queryOne(
           `SELECT u.id, u.name, u.email, u.phone, u.role, u.center_id, u.qualifications,
                   h.name AS center_name
@@ -92,11 +93,14 @@ authRouter.post(
     // Update last_login
     await dbQuery(`UPDATE users SET last_login = NOW() WHERE id = $1`, [dbUser.id]);
 
+    const jwtRole = role === 'admin' ? 'admin' : 'nurse';
     const tokenPayload = {
       sub: dbUser.id,
       email: dbUser.email || '',
       name: dbUser.name,
-      'custom:role': role === 'admin' ? 'admin' : 'nurse',
+      'custom:role': jwtRole,
+      role: jwtRole,
+      roles: [jwtRole],
       'custom:facilityId': dbUser.center_id || '',
     };
     const tokens = signTokens(tokenPayload);
@@ -108,7 +112,7 @@ authRouter.post(
         id: dbUser.id,
         email: dbUser.email,
         name: dbUser.name,
-        role: 'super_admin',
+        role: dbUser.role,
         permissions: ALL_ADMIN_PERMISSIONS,
         lastLogin: new Date().toISOString(),
         profileComplete,
@@ -157,11 +161,17 @@ authRouter.post(
       );
       if (!dbUser) throw AppError.unauthorized('User not found');
 
+      // Map raw DB roles to simplified JWT roles
+      const DB_ADMIN_ROLES = new Set(['super_admin', 'state_admin', 'district_admin', 'center_admin', 'doctor']);
+      const jwtRole = DB_ADMIN_ROLES.has(dbUser.role) ? 'admin' : dbUser.role === 'nurse' ? 'nurse' : 'patient';
+
       const tokenPayload = {
         sub: dbUser.id,
         email: dbUser.email || '',
         name: dbUser.name,
-        'custom:role': dbUser.role,
+        'custom:role': jwtRole,
+        role: jwtRole,
+        roles: [jwtRole],
         'custom:facilityId': dbUser.center_id || '',
       };
       const tokens = signTokens(tokenPayload);
@@ -185,7 +195,8 @@ authRouter.get(
       
       if (role === 'patient') {
         const patient = await queryOne(
-          `SELECT id, name, phone, abdm_id, age, gender, date_of_birth, address, district, state, pincode,
+          `SELECT id, name, phone, abdm_id, age, gender, date_of_birth, address,
+                  address->>'district' AS district, address->>'state' AS state, address->>'pincode' AS pincode,
                   medical_history, created_at, updated_at
            FROM patients WHERE id = $1`,
           [decoded.sub],
@@ -245,29 +256,41 @@ authRouter.patch(
       
       if (role === 'patient') {
         const { name, dateOfBirth, gender, abdmId, address, district, state, pincode, conditions, medications, allergies, familyHistory } = req.body;
-        
-        const medicalHistory = {
+
+        // Only build medicalHistory if at least one medical field was provided
+        const hasMedicalFields = conditions !== undefined || medications !== undefined || allergies !== undefined || familyHistory !== undefined;
+        const medicalHistory = hasMedicalFields ? {
           conditions: conditions || [],
           medications: medications || [],
           allergies: allergies || [],
           family_history: familyHistory || [],
-        };
-        
+        } : null;
+
+        // Merge district/state/pincode into the address JSONB field
+        const addressObj: Record<string, unknown> = typeof address === 'object' && address !== null
+          ? address
+          : typeof address === 'string' && address.trim()
+            ? { line: address.trim() }
+            : {};
+        if (district) addressObj.district = district;
+        if (state) addressObj.state = state;
+        if (pincode) addressObj.pincode = pincode;
+        const addressJson = Object.keys(addressObj).length > 0 ? JSON.stringify(addressObj) : null;
+
         const updated = await queryOne(
-          `UPDATE patients 
+          `UPDATE patients
            SET name = COALESCE($1, name),
                date_of_birth = COALESCE($2, date_of_birth),
                gender = COALESCE($3, gender),
                abdm_id = COALESCE($4, abdm_id),
-               address = COALESCE($5, address),
-               district = COALESCE($6, district),
-               state = COALESCE($7, state),
-               pincode = COALESCE($8, pincode),
-               medical_history = COALESCE($9::jsonb, medical_history),
+               address = COALESCE($5::jsonb, address),
+               medical_history = COALESCE($6::jsonb, medical_history),
                updated_at = NOW()
-           WHERE id = $10
-           RETURNING id, name, phone, abdm_id, date_of_birth, gender, address, district, state, pincode, medical_history`,
-          [name, dateOfBirth, gender, abdmId, address, district, state, pincode, JSON.stringify(medicalHistory), decoded.sub],
+           WHERE id = $7
+           RETURNING id, name, phone, abdm_id, date_of_birth, gender, address,
+                     address->>'district' AS district, address->>'state' AS state, address->>'pincode' AS pincode,
+                     medical_history`,
+          [name, dateOfBirth, gender, abdmId, addressJson, medicalHistory ? JSON.stringify(medicalHistory) : null, decoded.sub],
         );
         
         res.json({ success: true, data: updated });
@@ -313,8 +336,15 @@ authRouter.post(
     const otp = String(Math.floor(100000 + Math.random() * 900000));
     otpStore.set(sessionId, { phone, otp, expiresAt: Date.now() + 5 * 60 * 1000 });
 
+    // Send OTP to user via SMS (falls back to console.log in dev)
+    await sendSms({
+      phoneNumber: phone,
+      message: `Your Vaidyah verification code is ${otp}. Valid for 5 minutes. Do not share this code.`,
+      senderId: 'VAIDYH',
+    });
+
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Auth] OTP requested for phone ending in ${phone.slice(-4)} (dev only)`);
+      console.log(`[Auth] OTP sent to phone ending in ${phone.slice(-4)}`);
     }
 
     res.json({ success: true, session_id: sessionId, message: 'OTP sent' });
@@ -335,8 +365,9 @@ authRouter.post(
       otpStore.delete(session_id);
       throw AppError.unauthorized('OTP expired');
     }
-    // Dev mode: accept any 6-digit OTP or the actual OTP
-    if (otp !== stored.otp && otp.length !== 6) {
+    // In production, OTP must match exactly; in dev, accept any 6-digit code
+    const isDev = process.env.NODE_ENV !== 'production';
+    if (otp !== stored.otp && !(isDev && otp.length === 6)) {
       throw AppError.unauthorized('Invalid OTP');
     }
     otpStore.delete(session_id);
@@ -351,31 +382,42 @@ authRouter.post(
       const patientId = uuidv4();
       patient = await queryOne(
         `INSERT INTO patients (id, name, phone) VALUES ($1, $2, $3)
-         RETURNING id, name, phone, abdm_id, age, gender`,
+         RETURNING id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history`,
         [patientId, 'Patient', stored.phone],
       );
     }
 
+    if (!patient) {
+      throw new AppError('Failed to create or retrieve patient record', 500, 'PATIENT_CREATE_FAILED');
+    }
+
     const tokenPayload = {
-      sub: patient!.id,
+      sub: patient.id,
       email: '',
-      name: patient!.name,
+      name: patient.name,
       'custom:role': 'patient',
+      role: 'patient',
+      roles: ['patient'],
     };
     const tokens = signTokens(tokenPayload);
 
+    const profileComplete = !!(
+      patient.name && patient.name !== 'Patient' &&
+      patient.date_of_birth && patient.gender && patient.address
+    );
+
     const user = {
-      id: patient!.id,
-      name: patient!.name,
-      phone: patient!.phone,
-      abdmId: patient!.abdm_id,
-      age: patient!.age,
-      gender: patient!.gender,
-      conditions: patient!.medical_history?.conditions || [],
-      medications: patient!.medical_history?.medications || [],
-      allergies: patient!.medical_history?.allergies || [],
-      familyHistory: patient!.medical_history?.family_history || [],
-      profileComplete: !!(patient!.name && patient!.name !== 'Patient'),
+      id: patient.id,
+      name: patient.name,
+      phone: patient.phone,
+      abdmId: patient.abdm_id,
+      age: patient.age,
+      gender: patient.gender,
+      conditions: patient.medical_history?.conditions || [],
+      medications: patient.medical_history?.medications || [],
+      allergies: patient.medical_history?.allergies || [],
+      familyHistory: patient.medical_history?.family_history || [],
+      profileComplete,
     };
 
     res.json({ success: true, user, ...tokens });
@@ -388,6 +430,10 @@ authRouter.post(
   asyncHandler(async (req: Request, res: Response) => {
     const { session_id, otp } = req.body;
     if (!session_id || !otp) throw AppError.badRequest('session_id and otp are required');
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new AppError('MFA verification not yet implemented for production', 501, 'NOT_IMPLEMENTED');
+    }
 
     // Dev mode: accept any OTP and return the first nurse
     const dbUser = await queryOne(
@@ -404,6 +450,8 @@ authRouter.post(
       email: dbUser.email || '',
       name: dbUser.name,
       'custom:role': 'nurse',
+      role: 'nurse',
+      roles: ['nurse'],
       'custom:facilityId': dbUser.center_id || '',
     };
     const tokens = signTokens(tokenPayload);

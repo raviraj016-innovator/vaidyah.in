@@ -31,6 +31,7 @@ import { useSessionStore, TriageResult } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { TriageBadge } from '@/components/data-display/triage-badge';
 import { fetchWithFallback } from '@/lib/api/query-helpers';
+import { endpoints } from '@/lib/api/endpoints';
 
 
 // ---------------------------------------------------------------------------
@@ -50,15 +51,15 @@ export default function TriageResultPage() {
   // Fetch triage result from API
   const { data: apiTriageData } = useQuery({
     queryKey: ['nurse', 'triage', sessionId],
-    queryFn: fetchWithFallback<{ success: boolean; data: any }>(
-      `/sessions/${sessionId}/triage`,
+    queryFn: fetchWithFallback<any>(
+      endpoints.sessions.triage(sessionId),
     ),
     staleTime: 60_000,
   });
 
   // Apply API data to store
   useEffect(() => {
-    const apiResult = apiTriageData?.data;
+    const apiResult = apiTriageData;
     if (apiResult && !storeTriageResult) {
       setTriageResult({
         category: apiResult.triage_level ?? 'B',

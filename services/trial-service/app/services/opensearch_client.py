@@ -54,7 +54,7 @@ def _expand_query(query: str) -> str:
             if syn.lower() in q_lower:
                 terms.append(term)
                 break
-    return " | ".join(terms)
+    return " OR ".join(terms)
 
 
 def _build_search_vector_expr() -> str:
@@ -147,9 +147,9 @@ class TrialPgSearchClient:
         if request.query:
             param_idx += 1
             expanded = _expand_query(request.query)
-            where_clauses.append(f"search_vector @@ to_tsquery('english', plainto_tsquery('english', ${param_idx})::text)")
-            params.append(request.query)
-            rank_expr = f"ts_rank_cd(search_vector, plainto_tsquery('english', ${param_idx}))"
+            where_clauses.append(f"search_vector @@ websearch_to_tsquery('english', ${param_idx})")
+            params.append(expanded)
+            rank_expr = f"ts_rank_cd(search_vector, websearch_to_tsquery('english', ${param_idx}))"
 
         # Condition filter
         if request.conditions:

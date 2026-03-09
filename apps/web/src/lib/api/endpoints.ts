@@ -143,6 +143,20 @@ export const endpoints = {
     synthesize: '/voice/synthesize',
   },
 
+  // Patient Health
+  patientHealth: {
+    summary: '/patient/health/summary',
+    alertAcknowledge: (alertId: string) => `/patient/health/alerts/${alertId}/acknowledge`,
+    wearables: '/patient/profile/wearables',
+  },
+
+  // Emergency
+  emergency: {
+    create: '/emergency',
+    detail: (id: string) => `/emergency/${id}`,
+    notifyHospital: (id: string) => `/emergency/${id}/notify-hospital`,
+  },
+
   // Nurse Dashboard
   nurseDashboard: {
     stats: '/nurse/dashboard/stats',

@@ -93,11 +93,18 @@ async function callClaude(
     ? Buffer.from(response.body).toString('utf-8')
     : '{}';
   const result = JSON.parse(bodyStr);
-  const text: string = result.content?.[0]?.text ?? '{}';
+  const text: string = result.content?.[0]?.text ?? '';
+
+  if (!text) return {};
 
   // Extract JSON from response
   const jsonMatch = text.match(/\{[\s\S]*\}/);
-  return jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+  if (!jsonMatch) return {};
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch {
+    return {};
+  }
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

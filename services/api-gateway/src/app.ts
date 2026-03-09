@@ -30,8 +30,12 @@ import {
   sessionExtRouter,
   emergencyExtRouter,
   trialExtRouter,
+  patientHealthRouter,
+  patientProfileRouter,
 } from './routes/management';
 import { telemedicineRouter } from './routes/telemedicine';
+import { integrationRouter } from './routes/integration';
+import { nluRouter } from './routes/nlu';
 import { initializeAwsServices } from './services/aws-init';
 import { setupGraphQL } from './graphql';
 
@@ -154,8 +158,18 @@ app.use('/api/v1/centers', centersRouter);
 app.use('/api/v1/consultations', consultationsRouter);
 app.use('/api/v1/notifications', notificationsRouter);
 
+// Integration (ABDM, Wearables, WhatsApp)
+app.use('/api/v1/integration', integrationRouter);
+
+// Patient health & profile
+app.use('/api/v1/patient/health', patientHealthRouter);
+app.use('/api/v1/patient/profile', patientProfileRouter);
+
 // Telemedicine (video consultation + real-time transcription)
 app.use('/api/v1/telemedicine', telemedicineRouter);
+
+// NLU (natural language understanding — symptom extraction, translation, SOAP)
+app.use('/api/v1/nlu', nluRouter);
 
 // ─── Fallthrough ─────────────────────────────────────────────────────────────
 

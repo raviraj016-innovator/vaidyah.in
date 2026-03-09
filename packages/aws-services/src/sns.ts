@@ -77,29 +77,36 @@ export interface TopicNotification {
  */
 export async function sendSms(notification: SmsNotification): Promise<string | null> {
   if (!isServiceAvailable('sns')) {
-    console.log(`[SNS-Dev] SMS to ${notification.phoneNumber}: ${notification.message}`);
+    const masked = notification.phoneNumber.slice(-4).padStart(notification.phoneNumber.length, '*');
+    console.log(`[SNS-Dev] SMS to ${masked}: [message content hidden]`);
     return 'dev-message-id';
   }
 
   const client = getClient();
-  const response = await client.send(
-    new PublishCommand({
-      PhoneNumber: notification.phoneNumber,
-      Message: notification.message,
-      MessageAttributes: {
-        'AWS.SNS.SMS.SenderID': {
-          DataType: 'String',
-          StringValue: notification.senderId || 'VAIDYAH',
+  try {
+    const response = await client.send(
+      new PublishCommand({
+        PhoneNumber: notification.phoneNumber,
+        Message: notification.message,
+        MessageAttributes: {
+          'AWS.SNS.SMS.SenderID': {
+            DataType: 'String',
+            StringValue: notification.senderId || 'VAIDYAH',
+          },
+          'AWS.SNS.SMS.SMSType': {
+            DataType: 'String',
+            StringValue: 'Transactional',
+          },
         },
-        'AWS.SNS.SMS.SMSType': {
-          DataType: 'String',
-          StringValue: 'Transactional',
-        },
-      },
-    }),
-  );
+      }),
+    );
 
-  return response.MessageId ?? null;
+    return response.MessageId ?? null;
+  } catch (err) {
+    const masked = notification.phoneNumber.slice(-4).padStart(notification.phoneNumber.length, '*');
+    console.error(`[SNS] Failed to send SMS to ${masked}:`, (err as Error).message);
+    return null;
+  }
 }
 
 /**
@@ -128,15 +135,20 @@ export async function sendPush(notification: PushNotification): Promise<string |
     }),
   };
 
-  const response = await client.send(
-    new PublishCommand({
-      TargetArn: notification.endpointArn,
-      Message: JSON.stringify(payload),
-      MessageStructure: 'json',
-    }),
-  );
+  try {
+    const response = await client.send(
+      new PublishCommand({
+        TargetArn: notification.endpointArn,
+        Message: JSON.stringify(payload),
+        MessageStructure: 'json',
+      }),
+    );
 
-  return response.MessageId ?? null;
+    return response.MessageId ?? null;
+  } catch (err) {
+    console.error(`[SNS] Failed to send push to ${notification.endpointArn}:`, (err as Error).message);
+    return null;
+  }
 }
 
 /**
@@ -156,16 +168,21 @@ export async function publishToTopic(notification: TopicNotification): Promise<s
     }
   }
 
-  const response = await client.send(
-    new PublishCommand({
-      TopicArn: topicArn(notification.topic),
-      Subject: notification.subject,
-      Message: notification.message,
-      MessageAttributes: messageAttributes,
-    }),
-  );
+  try {
+    const response = await client.send(
+      new PublishCommand({
+        TopicArn: topicArn(notification.topic),
+        Subject: notification.subject,
+        Message: notification.message,
+        MessageAttributes: messageAttributes,
+      }),
+    );
 
-  return response.MessageId ?? null;
+    return response.MessageId ?? null;
+  } catch (err) {
+    console.error(`[SNS] Failed to publish to topic ${notification.topic}:`, (err as Error).message);
+    return null;
+  }
 }
 
 /**
@@ -184,15 +201,20 @@ export async function registerDevice(
   const client = getClient();
   const platformAppArn = platform === 'ios' ? PLATFORM_APP_ARN_APNS : PLATFORM_APP_ARN_GCM;
 
-  const response = await client.send(
-    new CreatePlatformEndpointCommand({
-      PlatformApplicationArn: platformAppArn,
-      Token: deviceToken,
-      CustomUserData: userId,
-    }),
-  );
+  try {
+    const response = await client.send(
+      new CreatePlatformEndpointCommand({
+        PlatformApplicationArn: platformAppArn,
+        Token: deviceToken,
+        CustomUserData: userId,
+      }),
+    );
 
-  return response.EndpointArn ?? null;
+    return response.EndpointArn ?? null;
+  } catch (err) {
+    console.error(`[SNS] Failed to register ${platform} device for user ${userId}:`, (err as Error).message);
+    return null;
+  }
 }
 
 /**
@@ -209,16 +231,21 @@ export async function subscribeToTopic(
   }
 
   const client = getClient();
-  const response = await client.send(
-    new SubscribeCommand({
-      TopicArn: topicArn(topic),
-      Protocol: protocol,
-      Endpoint: endpoint,
-      ReturnSubscriptionArn: true,
-    }),
-  );
+  try {
+    const response = await client.send(
+      new SubscribeCommand({
+        TopicArn: topicArn(topic),
+        Protocol: protocol,
+        Endpoint: endpoint,
+        ReturnSubscriptionArn: true,
+      }),
+    );
 
-  return response.SubscriptionArn ?? null;
+    return response.SubscriptionArn ?? null;
+  } catch (err) {
+    console.error(`[SNS] Failed to subscribe ${protocol}:${endpoint} to ${topic}:`, (err as Error).message);
+    return null;
+  }
 }
 
 /**
@@ -227,7 +254,11 @@ export async function subscribeToTopic(
 export async function unsubscribeFromTopic(subscriptionArn: string): Promise<void> {
   if (!isServiceAvailable('sns')) return;
   const client = getClient();
-  await client.send(new UnsubscribeCommand({ SubscriptionArn: subscriptionArn }));
+  try {
+    await client.send(new UnsubscribeCommand({ SubscriptionArn: subscriptionArn }));
+  } catch (err) {
+    console.error(`[SNS] Failed to unsubscribe ${subscriptionArn}:`, (err as Error).message);
+  }
 }
 
 /**
@@ -257,9 +288,14 @@ export async function ensureTopics(): Promise<void> {
 export async function listTopicSubscribers(topic: NotificationTopic) {
   if (!isServiceAvailable('sns')) return [];
 
-  const client = getClient();
-  const response = await client.send(
-    new ListSubscriptionsByTopicCommand({ TopicArn: topicArn(topic) }),
-  );
-  return response.Subscriptions ?? [];
+  try {
+    const client = getClient();
+    const response = await client.send(
+      new ListSubscriptionsByTopicCommand({ TopicArn: topicArn(topic) }),
+    );
+    return response.Subscriptions ?? [];
+  } catch (err) {
+    console.error(`[SNS] Failed to list subscribers for ${topic}:`, (err as Error).message);
+    return [];
+  }
 }

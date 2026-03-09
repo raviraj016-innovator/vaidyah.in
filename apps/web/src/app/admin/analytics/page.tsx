@@ -120,7 +120,7 @@ export default function AnalyticsPage() {
       dataIndex: 'name',
       key: 'name',
       render: (name: string) => <Text strong>{name}</Text>,
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      sorter: (a, b) => (a.name ?? '').localeCompare(b.name ?? ''),
     },
     {
       title: 'Center',
@@ -238,7 +238,7 @@ export default function AnalyticsPage() {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={14}>
           <Card title="Disease Prevalence (Top 10)" styles={{ body: { padding: 16 } }}>
-            {diseaseData && (
+            {diseaseData && diseaseData.length > 0 && (
               <BarChart
                 data={diseaseData}
                 xField="count"
@@ -255,7 +255,7 @@ export default function AnalyticsPage() {
         </Col>
         <Col xs={24} lg={10}>
           <Card title="Patient Demographics" styles={{ body: { padding: 16 } }}>
-            {demographicsData && (
+            {demographicsData && demographicsData.length > 0 && (
               <PieChart
                 data={demographicsData}
                 angleField="count"
@@ -273,7 +273,7 @@ export default function AnalyticsPage() {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <Card title="AI Model Accuracy Trend" styles={{ body: { padding: 16 } }}>
-            {accuracyData && (
+            {accuracyData && accuracyData.length > 0 && (
               <LineChart
                 data={accuracyData}
                 xField="date"
@@ -291,7 +291,7 @@ export default function AnalyticsPage() {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={10}>
           <Card title="Avg Wait Time by Center (min)" styles={{ body: { padding: 16 } }}>
-            {waitTimesData && (
+            {waitTimesData && waitTimesData.length > 0 && (
               <BarChart
                 data={waitTimesData}
                 xField="waitTime"
@@ -310,8 +310,8 @@ export default function AnalyticsPage() {
         <Col xs={24} lg={14}>
           <Card title="Nurse Performance" styles={{ body: { padding: 0 } }}>
             <Table
-              rowKey="key"
-              dataSource={nursePerformance}
+              rowKey={(record) => record.key ?? record.name}
+              dataSource={nursePerformance ?? []}
               columns={performanceColumns}
               pagination={false}
               size="middle"

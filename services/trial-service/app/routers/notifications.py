@@ -251,7 +251,7 @@ async def get_patient_notifications(
         try:
             metadata = row["metadata"] if isinstance(row["metadata"], dict) else json.loads(row["metadata"] or "{}")
         except (json.JSONDecodeError, TypeError):
-            logger.warning("invalid_metadata_json", notification_id=row.get("notification_id"))
+            logger.warning("invalid_metadata_json", notification_id=row["notification_id"])
             metadata = {}
         results.append(TrialNotification(
             notification_id=row["notification_id"],

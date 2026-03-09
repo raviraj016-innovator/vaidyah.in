@@ -29,6 +29,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, PatientInfo } from '@/stores/session-store';
+import { useAuthStore, NurseUser } from '@/stores/auth-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
@@ -70,6 +71,7 @@ export default function PatientIntakePage() {
   const { language } = useTranslation();
   const { message } = App.useApp();
   const startSession = useSessionStore((s) => s.startSession);
+  const nurseUser = useAuthStore((s) => s.user) as NurseUser | null;
 
   const [form] = Form.useForm();
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -96,12 +98,12 @@ export default function PatientIntakePage() {
       }
       setLookupLoading(true);
       try {
-        const { data: found } = await api.get(endpoints.patients.abdmLookup, { params: { abdmId: value } });
-        setLookupResult(found);
+        const { data: found } = await api.post(endpoints.patients.abdmLookup, { abdmId: value });
+        const patient = found?.data ?? found;
+        setLookupResult(patient);
         form.setFieldsValue({
-          name: found.name, age: found.age, gender: found.gender,
-          phone: found.phone, bloodGroup: found.bloodGroup,
-          allergies: found.allergies, chronicConditions: found.chronicConditions,
+          name: patient.name, age: patient.age, gender: patient.gender,
+          phone: patient.phone, bloodGroup: patient.blood_group ?? patient.bloodGroup,
         });
         message.success(language === 'hi' ? 'रोगी मिला!' : 'Patient found!');
       } catch (err) {
@@ -116,7 +118,7 @@ export default function PatientIntakePage() {
         setLookupLoading(false);
       }
     },
-    [form, language, message],
+    [form, language],
   );
 
   // Select recent patient
@@ -137,7 +139,7 @@ export default function PatientIntakePage() {
           : `Filled data for ${patient.name}`,
       );
     },
-    [form, language, message],
+    [form, language],
   );
 
   // Submit form
@@ -161,8 +163,16 @@ export default function PatientIntakePage() {
 
       // Try to create patient + session on backend
       try {
-        await api.post(endpoints.patients.create, patient);
-        await api.post(endpoints.sessions.start, { patientId: patient.id, sessionId: newSessionId });
+        const createRes = await api.post(endpoints.patients.create, patient);
+        const createdPatient = createRes.data?.data ?? createRes.data;
+        const backendPatientId = createdPatient?.id;
+        if (backendPatientId) {
+          const centerId = nurseUser?.centerId;
+          await api.post(endpoints.sessions.start, {
+            patientId: backendPatientId,
+            centerId: centerId || undefined,
+          });
+        }
       } catch (err) {
         console.error('Failed to create patient/session on backend:', err);
       }

@@ -131,9 +131,16 @@ export default function AdminTrialsPage() {
         setTrials(data);
         setTotal(res.data?.meta?.total ?? data.length);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch trials:', err);
-      message.error('Failed to load trials. Make sure the trial service is running.');
+      const status = err.response?.status;
+      if (status === 429) {
+        message.warning('Too many requests. Please wait a moment and try again.');
+      } else if (status === 401) {
+        // Auth interceptor handles redirect — don't show duplicate error
+      } else {
+        message.error('Failed to load trials. Make sure the trial service is running.');
+      }
     } finally {
       setLoading(false);
     }
@@ -157,12 +164,24 @@ export default function AdminTrialsPage() {
       });
       message.success('CSV upload started. Processing in background...');
 
-      // Poll for status
+      // Clear any existing poll before starting a new one
+      if (pollRef.current) clearInterval(pollRef.current);
+      // Poll for status (max 60 attempts = ~2 minutes)
+      let pollErrors = 0;
+      let pollCount = 0;
       pollRef.current = setInterval(async () => {
+        pollCount++;
+        if (pollCount > 60) {
+          clearInterval(pollRef.current);
+          setImporting(false);
+          message.warning('Import status polling timed out. Check back later.');
+          return;
+        }
         try {
           const res = await api.get(endpoints.trials.csvStatus);
           const status = res.data as CsvImportStatus;
           setImportStatus(status);
+          pollErrors = 0; // reset on success
 
           if (status.state === 'completed' || status.state === 'failed') {
             clearInterval(pollRef.current);
@@ -175,7 +194,12 @@ export default function AdminTrialsPage() {
             }
           }
         } catch {
-          // continue polling
+          pollErrors++;
+          if (pollErrors >= 5) {
+            clearInterval(pollRef.current);
+            setImporting(false);
+            message.error('Failed to check import status. Please try again.');
+          }
         }
       }, 2000);
     } catch {
@@ -184,7 +208,7 @@ export default function AdminTrialsPage() {
     }
 
     return false; // prevent default upload
-  }, [message, fetchTrials]);
+  }, [fetchTrials]);
 
   useEffect(() => {
     return () => {
@@ -196,7 +220,7 @@ export default function AdminTrialsPage() {
   const filteredTrials = trials.filter((t) => {
     const matchesSearch = !search || (t.title ?? '').toLowerCase().includes(search.toLowerCase())
       || (t.nct_id ?? '').toLowerCase().includes(search.toLowerCase())
-      || t.conditions?.some(c => c.toLowerCase().includes(search.toLowerCase()));
+      || t.conditions?.some(c => c?.toLowerCase().includes(search.toLowerCase()));
     const matchesStatus = !statusFilter || t.status?.toLowerCase().includes(statusFilter.toLowerCase());
     return matchesSearch && matchesStatus;
   });

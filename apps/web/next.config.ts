@@ -25,20 +25,9 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  async rewrites() {
-    const apiUrl = process.env.API_GATEWAY_URL;
-    if (!apiUrl) return [];
-    return [
-      {
-        source: '/api/v1/:path*',
-        destination: `${apiUrl}/api/v1/:path*`,
-      },
-      {
-        source: '/auth/:path*',
-        destination: `${process.env.AUTH_SERVICE_URL || apiUrl}/auth/:path*`,
-      },
-    ];
-  },
+  // Proxying is handled by API route handlers:
+  //   src/app/api/v1/[...path]/route.ts
+  //   src/app/auth/[...path]/route.ts
 };
 
 export default nextConfig;

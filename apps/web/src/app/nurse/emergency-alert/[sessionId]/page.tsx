@@ -77,13 +77,13 @@ export default function EmergencyAlertPage() {
   // Fetch emergency data from API
   const { data: emergencyData } = useQuery({
     queryKey: ['nurse', 'emergency', sessionId],
-    queryFn: fetchWithFallback<{ success: boolean; data: any }>(
+    queryFn: fetchWithFallback<any>(
       `/emergency/${sessionId}`,
     ),
     staleTime: 30_000,
   });
 
-  const apiEmergency = emergencyData?.data;
+  const apiEmergency = emergencyData;
   const emergency = {
     patientName: apiEmergency?.patient_name ?? patient?.name ?? '--',
     age: apiEmergency?.patient_age ?? patient?.age ?? '--',

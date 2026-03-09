@@ -744,14 +744,14 @@ notificationRouter.post('/schedule', authorize('doctor', 'admin', 'system'), asy
     const id = uuidv4();
 
     await query(
-      `INSERT INTO scheduled_notifications (id, patient_id, type, scheduled_for, status, payload, attempts, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, 0, NOW())`,
-      [id, patientId, type, scheduledFor, JSON.stringify(payload || {})]
+      `INSERT INTO scheduled_notifications (id, patient_id, notification_type, title, message, scheduled_for, metadata, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [id, patientId, type, type, `Scheduled ${type} notification`, scheduledFor, JSON.stringify(payload || {})]
     );
 
     const notification = await queryOne<ScheduledNotification>(
-      `SELECT id, patient_id AS "patientId", type, scheduled_for AS "scheduledFor",
-              status, payload, attempts, created_at AS "createdAt"
+      `SELECT id, patient_id AS "patientId", notification_type AS "type", scheduled_for AS "scheduledFor",
+              sent AS "sent", metadata AS "payload", created_at AS "createdAt"
        FROM scheduled_notifications WHERE id = $1`,
       [id]
     );
@@ -790,20 +790,21 @@ notificationRouter.get('/:patientId', authorize('doctor', 'patient', 'admin', 's
 
     const { status, type } = req.query;
 
-    let sql = `SELECT id, patient_id AS "patientId", type, scheduled_for AS "scheduledFor",
-                      status, payload, attempts, last_attempt_at AS "lastAttemptAt",
+    let sql = `SELECT id, patient_id AS "patientId", notification_type AS "type", scheduled_for AS "scheduledFor",
+                      sent AS "sent", metadata AS "payload",
                       created_at AS "createdAt"
                FROM scheduled_notifications WHERE patient_id = $1`;
     const params: unknown[] = [patientId];
 
-    if (status) {
-      params.push(status);
-      sql += ` AND status = $${params.length}`;
+    if (status === 'sent') {
+      sql += ` AND sent = true`;
+    } else if (status === 'pending') {
+      sql += ` AND sent = false`;
     }
 
     if (type) {
       params.push(type);
-      sql += ` AND type = $${params.length}`;
+      sql += ` AND notification_type = $${params.length}`;
     }
 
     sql += ` ORDER BY scheduled_for DESC LIMIT 100`;

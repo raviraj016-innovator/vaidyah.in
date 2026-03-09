@@ -257,11 +257,9 @@ BATCH_SIZE = 100
 
 
 async def _process_csv_rows(rows: list[dict]) -> None:
-    """Process CSV rows: upsert to PostgreSQL and index to OpenSearch."""
+    """Process CSV rows: index into PostgreSQL full-text search (trials table)."""
     global _csv_import_status
-    import json
 
-    batch_db: list[tuple] = []
     batch_os: list[dict] = []
     ingested_trials: list[dict] = []
 
@@ -279,45 +277,7 @@ async def _process_csv_rows(rows: list[dict]) -> None:
 
         nct_id = trial_data["nct_id"]
 
-        # Build DB row
-        db_eligibility = json.dumps(trial_data["eligibility"])
-        db_conditions = trial_data["conditions"]
-        db_interventions = json.dumps([])
-        db_locations = json.dumps(
-            [{"facility_name": trial_data["locations_raw"]}]
-            if trial_data["locations_raw"]
-            else []
-        )
-        db_contacts = json.dumps([])
-
-        batch_db.append((
-            nct_id,
-            trial_data["title"],
-            trial_data["brief_summary"],
-            trial_data["plain_summary"],
-            None,  # detailed_description
-            db_conditions,
-            db_interventions,
-            trial_data["phase"],
-            trial_data["status"],
-            db_eligibility,
-            db_locations,
-            db_contacts,
-            trial_data["sponsor"],
-            trial_data["start_date"],
-            None,  # completion_date
-            trial_data["start_date"],  # last_updated
-            None,  # enrollment
-            None,  # study_type
-            trial_data["url"],
-            json.dumps({
-                "categories": trial_data["categories"],
-                "age_group": trial_data["age_group"],
-                "race_ethnicity": trial_data["race_ethnicity"],
-            }),
-        ))
-
-        # Build OpenSearch doc
+        # Build document for the trials JSONB table + tsvector search index
         os_doc = {
             "nct_id": nct_id,
             "title": trial_data["title"],
@@ -336,6 +296,11 @@ async def _process_csv_rows(rows: list[dict]) -> None:
                 "maximum_age_years": trial_data["max_age_years"],
                 "healthy_volunteers": False,
             },
+            "locations": (
+                [{"facility_name": trial_data["locations_raw"]}]
+                if trial_data.get("locations_raw")
+                else []
+            ),
             "categories": trial_data["categories"],
             "age_group": trial_data["age_group"],
             "race_ethnicity": trial_data["race_ethnicity"],
@@ -350,14 +315,13 @@ async def _process_csv_rows(rows: list[dict]) -> None:
         _csv_import_status["processed"] += 1
 
         # Flush batch
-        if len(batch_db) >= BATCH_SIZE:
-            await _flush_batch(batch_db, batch_os)
-            batch_db = []
+        if len(batch_os) >= BATCH_SIZE:
+            await _flush_batch(batch_os)
             batch_os = []
 
     # Flush remaining
-    if batch_db:
-        await _flush_batch(batch_db, batch_os)
+    if batch_os:
+        await _flush_batch(batch_os)
 
     _csv_import_status["state"] = "completed"
     logger.info(
@@ -371,44 +335,17 @@ async def _process_csv_rows(rows: list[dict]) -> None:
     await _generate_summaries_for_ingested(ingested_trials)
 
 
-async def _flush_batch(batch_db: list[tuple], batch_os: list[dict]) -> None:
-    """Flush a batch of rows to PostgreSQL and OpenSearch."""
+async def _flush_batch(batch_os: list[dict]) -> None:
+    """Flush a batch of rows to PostgreSQL full-text search index (trials table).
+
+    The trial-service uses its own ``trials`` table (nct_id, data JSONB,
+    search_vector) rather than the ``clinical_trials`` relational table from
+    init.sql.  We index directly via the search client which handles both
+    the data upsert and the tsvector computation.
+    """
     global _csv_import_status
 
-    # PostgreSQL upsert
-    try:
-        await execute_many(
-            """
-            INSERT INTO clinical_trials
-                (nct_id, title, brief_summary, plain_summary, detailed_description,
-                 conditions, interventions, phase, status, eligibility,
-                 locations, contacts, sponsor, start_date, completion_date,
-                 last_updated, enrollment, study_type, url, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::trial_status, $10::jsonb,
-                    $11::jsonb, $12::jsonb, $13, $14::date, $15::date,
-                    $16::date, $17, $18, $19, $20::jsonb)
-            ON CONFLICT (nct_id) DO UPDATE SET
-                title = EXCLUDED.title,
-                brief_summary = EXCLUDED.brief_summary,
-                plain_summary = EXCLUDED.plain_summary,
-                conditions = EXCLUDED.conditions,
-                phase = EXCLUDED.phase,
-                status = EXCLUDED.status,
-                eligibility = EXCLUDED.eligibility,
-                sponsor = EXCLUDED.sponsor,
-                start_date = EXCLUDED.start_date,
-                url = EXCLUDED.url,
-                metadata = EXCLUDED.metadata,
-                last_synced = NOW()
-            """,
-            batch_db,
-        )
-    except Exception:
-        logger.exception("csv_batch_db_failed", batch_size=len(batch_db))
-        _csv_import_status["failed"] += len(batch_db)
-        return
-
-    # Index into PostgreSQL full-text search
+    # Index into PostgreSQL full-text search (trials table with JSONB)
     try:
         from app.services.opensearch_client import get_opensearch_client
 

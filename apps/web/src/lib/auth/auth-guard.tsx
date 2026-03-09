@@ -38,7 +38,7 @@ export function AuthGuard({ children, requiredPortal }: AuthGuardProps) {
       return;
     }
     const portalRoleMap: Record<PortalType, string[]> = {
-      admin: ['super_admin', 'state_admin', 'district_admin', 'viewer'],
+      admin: ['super_admin', 'state_admin', 'district_admin', 'center_admin', 'doctor', 'viewer'],
       nurse: ['nurse', 'anm', 'staff_nurse', 'senior_nurse', 'junior_nurse'],
       patient: [],
     };

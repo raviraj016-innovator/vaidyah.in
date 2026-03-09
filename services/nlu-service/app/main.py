@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import structlog
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.routers.nlu import router as nlu_router
-from app.services.bedrock_client import BedrockClient
+from app.services.bedrock_client import BedrockClient, BedrockClientError
 from app.services.comprehend_medical import ComprehendMedicalClient
 from app.services.symptom_extractor import SymptomExtractor
+from app.middleware.auth import AuthenticatedUser, get_current_user
 
 # ---------------------------------------------------------------------------
 # Structured logging
@@ -142,6 +145,105 @@ async def add_security_headers(request: Request, call_next):
 # ---------------------------------------------------------------------------
 
 app.include_router(nlu_router)
+
+
+# ---------------------------------------------------------------------------
+# Generic /api/v1/generate endpoint (used by clinical-service)
+# ---------------------------------------------------------------------------
+
+_GENERATE_SYSTEM_PROMPTS: dict[str, str] = {
+    "generate_soap_note": (
+        "You are a clinical documentation assistant. Generate a structured SOAP note "
+        "from the provided consultation data.\n\n"
+        "Return ONLY a JSON object with keys: subjective, objective, assessment, plan.\n"
+        "Each value should be a detailed object with relevant clinical sub-fields."
+    ),
+    "differential_diagnosis": (
+        "You are a clinical decision support assistant. Generate differential diagnoses "
+        "based on the provided symptoms, vitals, and patient demographics.\n\n"
+        "Return ONLY a JSON object with keys:\n"
+        '- "diagnoses": array of {condition_name, icd10_code, confidence, severity, supporting_evidence, recommended_tests}\n'
+        '- "clinical_summary": string\n'
+        '- "data_quality_notes": array of strings'
+    ),
+    "symptom_check": (
+        "You are a clinical symptom assessment assistant. Analyze the provided symptoms "
+        "and patient information to suggest possible conditions and red flags.\n\n"
+        "Return ONLY a JSON object with keys:\n"
+        '- "possible_conditions": array of {name, likelihood, description}\n'
+        '- "red_flags_detected": array of strings\n'
+        '- "recommendations": array of strings'
+    ),
+    "symptom_followup_questions": (
+        "You are a clinical interview assistant. Generate follow-up questions for each "
+        "symptom to help narrow down the diagnosis.\n\n"
+        "Return ONLY a JSON object with key:\n"
+        '- "followup_questions": array of {symptom: string, questions: array of strings}'
+    ),
+}
+
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    context: dict[str, Any] = Field(default_factory=dict)
+    max_tokens: int = 4096
+    temperature: float = 0.3
+
+
+@app.post("/api/v1/generate", tags=["generate"])
+async def generate(body: GenerateRequest, request: Request, _user: "AuthenticatedUser" = Depends(get_current_user)) -> Any:
+    """Generic generation endpoint called by clinical-service."""
+    bedrock: BedrockClient | None = request.app.state.bedrock_client
+    if bedrock is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Bedrock client is not available.",
+        )
+
+    system_prompt = _GENERATE_SYSTEM_PROMPTS.get(body.prompt)
+    if not system_prompt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown prompt type: {body.prompt}",
+        )
+
+    import json as _json
+    user_message = _json.dumps(body.context, default=str)
+
+    try:
+        result = await asyncio.to_thread(
+            bedrock.invoke_and_parse_json,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+        )
+        return result["data"]
+    except (BedrockClientError, ValueError) as exc:
+        logger.exception("generate_failed", prompt=body.prompt)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Generation failed for prompt '{body.prompt}': {exc}",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Global Exception Handler
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "unhandled_exception",
+        path=request.url.path,
+        method=request.method,
+        error=str(exc),
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_server_error", "detail": "An unexpected error occurred."},
+    )
 
 
 # ---------------------------------------------------------------------------

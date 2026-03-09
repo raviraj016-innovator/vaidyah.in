@@ -184,7 +184,7 @@ async def get_patient_matches(
         try:
             scores = row["scores"] if isinstance(row["scores"], dict) else json.loads(row["scores"] or "{}")
         except (json.JSONDecodeError, TypeError):
-            logger.warning("invalid_scores_json", match_id=row.get("match_id"))
+            logger.warning("invalid_scores_json", match_id=row["match_id"])
             scores = {}
         results.append(TrialMatchScore(
             nct_id=row["nct_id"],

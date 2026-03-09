@@ -619,7 +619,7 @@ export class ABDMService {
       id: c.id,
       status: c.status as ConsentStatus,
       purpose: c.purpose,
-      hiTypes: JSON.parse(c.hi_types || '[]'),
+      hiTypes: typeof c.hi_types === 'string' ? JSON.parse(c.hi_types) : (c.hi_types || []),
       createdAt: c.created_at,
     }));
   }

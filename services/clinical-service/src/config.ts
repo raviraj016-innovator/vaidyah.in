@@ -80,6 +80,8 @@ export const config = {
       }
       return s;
     })(),
+    issuer: optionalEnv('JWT_ISSUER', 'vaidyah-auth'),
+    audience: optionalEnv('JWT_AUDIENCE', 'vaidyah'),
   },
 
   /** Emergency services */

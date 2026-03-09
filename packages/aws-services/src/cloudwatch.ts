@@ -99,12 +99,18 @@ export async function flushMetrics(): Promise<void> {
   const client = getClient();
   const batch = metricBuffer.splice(0, MAX_BUFFER_SIZE);
 
-  await client.send(
-    new PutMetricDataCommand({
-      Namespace: NAMESPACE,
-      MetricData: batch,
-    }),
-  );
+  try {
+    await client.send(
+      new PutMetricDataCommand({
+        Namespace: NAMESPACE,
+        MetricData: batch,
+      }),
+    );
+  } catch (err) {
+    // Restore metrics to buffer so they aren't lost
+    metricBuffer.unshift(...batch);
+    console.error('[CloudWatch] Failed to flush metrics:', (err as Error).message);
+  }
 }
 
 // ─── Pre-defined Application Metrics ─────────────────────────────────────────
@@ -213,24 +219,29 @@ export async function createAlarm(
   }
 
   const client = getClient();
-  await client.send(
-    new PutMetricAlarmCommand({
-      AlarmName: alarmName,
-      Namespace: NAMESPACE,
-      MetricName: metricName,
-      Threshold: threshold,
-      ComparisonOperator: options?.comparisonOperator || ComparisonOperator.GreaterThanOrEqualToThreshold,
-      EvaluationPeriods: options?.evaluationPeriods || 2,
-      Period: options?.period || 300,
-      Statistic: options?.statistic || Statistic.Sum,
-      Dimensions: options?.dimensions
-        ? Object.entries(options.dimensions).map(([Name, Value]) => ({ Name, Value }))
-        : undefined,
-      AlarmActions: options?.snsTopicArn ? [options.snsTopicArn] : undefined,
-      AlarmDescription: options?.description || `Vaidyah alarm: ${alarmName}`,
-      TreatMissingData: 'notBreaching',
-    }),
-  );
+  try {
+    await client.send(
+      new PutMetricAlarmCommand({
+        AlarmName: alarmName,
+        Namespace: NAMESPACE,
+        MetricName: metricName,
+        Threshold: threshold,
+        ComparisonOperator: options?.comparisonOperator || ComparisonOperator.GreaterThanOrEqualToThreshold,
+        EvaluationPeriods: options?.evaluationPeriods || 2,
+        Period: options?.period || 300,
+        Statistic: options?.statistic || Statistic.Sum,
+        Dimensions: options?.dimensions
+          ? Object.entries(options.dimensions).map(([Name, Value]) => ({ Name, Value }))
+          : undefined,
+        AlarmActions: options?.snsTopicArn ? [options.snsTopicArn] : undefined,
+        AlarmDescription: options?.description || `Vaidyah alarm: ${alarmName}`,
+        TreatMissingData: 'notBreaching',
+      }),
+    );
+  } catch (err) {
+    console.error(`[CloudWatch] Failed to create alarm "${alarmName}":`, (err as Error).message);
+    throw err;
+  }
 }
 
 /**
@@ -240,10 +251,15 @@ export async function listAlarms() {
   if (!isServiceAvailable('cloudwatch')) return [];
 
   const client = getClient();
-  const response = await client.send(
-    new DescribeAlarmsCommand({ MaxRecords: 50 }),
-  );
-  return response.MetricAlarms ?? [];
+  try {
+    const response = await client.send(
+      new DescribeAlarmsCommand({ MaxRecords: 50 }),
+    );
+    return response.MetricAlarms ?? [];
+  } catch (err) {
+    console.error('[CloudWatch] Failed to list alarms:', (err as Error).message);
+    return [];
+  }
 }
 
 /**

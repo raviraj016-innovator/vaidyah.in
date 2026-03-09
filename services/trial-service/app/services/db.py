@@ -175,6 +175,13 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_subscriptions_patient ON subscriptions (patient_id, is_active);
 
+CREATE TABLE IF NOT EXISTS pending_deliveries (
+    delivery_id TEXT PRIMARY KEY,
+    patient_id  TEXT NOT NULL,
+    payload     JSONB NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS etl_runs (
     run_id          TEXT PRIMARY KEY,
     state           TEXT NOT NULL DEFAULT 'idle',

@@ -88,9 +88,14 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             return _error_response(401, "Token validation failed")
 
         # Attach decoded user to request state
+        # Read role from custom:role (gateway format), role, or roles claims
+        role = payload.get("custom:role") or payload.get("role", "patient")
+        if not role:
+            roles_list = payload.get("roles", [])
+            role = roles_list[0] if roles_list else "patient"
         request.state.user = {
             "user_id": payload.get("sub"),
-            "role": payload.get("role", "patient"),
+            "role": role,
             "permissions": payload.get("permissions", []),
             "issued_at": payload.get("iat"),
             "expires_at": payload.get("exp"),

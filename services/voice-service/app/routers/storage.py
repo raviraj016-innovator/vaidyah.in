@@ -9,6 +9,8 @@ DELETE /recordings/{consultation_id}/{filename} - Delete a recording
 
 from __future__ import annotations
 
+import asyncio
+import re
 import time
 import uuid
 from typing import Optional
@@ -29,6 +31,9 @@ from app.models import ErrorResponse
 
 logger = structlog.get_logger("voice.storage")
 router = APIRouter()
+
+# Safe pattern for path segments — alphanumeric, hyphens, underscores, dots
+_SAFE_PATH_SEGMENT = re.compile(r"^[a-zA-Z0-9_.\-]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +123,8 @@ async def upload_recording(
         }
 
     try:
-        result = s3_client.put_object(
+        result = await asyncio.to_thread(
+            s3_client.put_object,
             Bucket=bucket,
             Key=s3_key,
             Body=contents,
@@ -181,8 +187,9 @@ async def get_recording_url(
 
     try:
         # List objects to find the latest recording
-        response = s3_client.list_objects_v2(
-            Bucket=bucket, Prefix=prefix, MaxKeys=100
+        response = await asyncio.to_thread(
+            s3_client.list_objects_v2,
+            Bucket=bucket, Prefix=prefix, MaxKeys=100,
         )
         contents = response.get("Contents", [])
 
@@ -196,7 +203,8 @@ async def get_recording_url(
         latest = sorted(contents, key=lambda x: x["LastModified"], reverse=True)[0]
 
         # Generate presigned URL
-        url = s3_client.generate_presigned_url(
+        url = await asyncio.to_thread(
+            s3_client.generate_presigned_url,
             "get_object",
             Params={"Bucket": bucket, "Key": latest["Key"]},
             ExpiresIn=settings.s3_presigned_url_expiry,
@@ -250,32 +258,37 @@ async def list_recordings(
         }
 
     try:
-        response = s3_client.list_objects_v2(
-            Bucket=bucket, Prefix=prefix, MaxKeys=100
+        response = await asyncio.to_thread(
+            s3_client.list_objects_v2,
+            Bucket=bucket, Prefix=prefix, MaxKeys=100,
         )
         contents = response.get("Contents", [])
 
-        recordings = []
-        for obj in sorted(contents, key=lambda x: x["LastModified"], reverse=True):
-            # Generate presigned URL for each recording
-            url = s3_client.generate_presigned_url(
+        sorted_contents = sorted(contents, key=lambda x: x["LastModified"], reverse=True)
+
+        # Generate presigned URLs concurrently
+        async def _presign(obj: dict) -> dict:
+            url = await asyncio.to_thread(
+                s3_client.generate_presigned_url,
                 "get_object",
                 Params={"Bucket": bucket, "Key": obj["Key"]},
                 ExpiresIn=settings.s3_presigned_url_expiry,
             )
-            recordings.append({
+            return {
                 "key": obj["Key"],
                 "filename": obj["Key"].split("/")[-1],
                 "size_bytes": obj["Size"],
                 "last_modified": obj["LastModified"].isoformat(),
                 "download_url": url,
-            })
+            }
+
+        recordings = await asyncio.gather(*[_presign(obj) for obj in sorted_contents])
 
         return {
             "success": True,
             "data": {
                 "consultation_id": consultation_id,
-                "recordings": recordings,
+                "recordings": list(recordings),
                 "total": len(recordings),
             },
         }
@@ -301,6 +314,13 @@ async def delete_recording(
     settings: Settings = Depends(get_settings),
     s3_client=Depends(_get_s3_client),
 ):
+    # Validate path segments to prevent path traversal
+    if not _SAFE_PATH_SEGMENT.match(consultation_id) or not _SAFE_PATH_SEGMENT.match(filename):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid consultation_id or filename",
+        )
+
     bucket = settings.s3_audio_bucket
     s3_key = f"consultations/{consultation_id}/{filename}"
 
@@ -308,7 +328,7 @@ async def delete_recording(
         return {"success": True, "message": f"Deleted {s3_key} (dev fallback)"}
 
     try:
-        s3_client.delete_object(Bucket=bucket, Key=s3_key)
+        await asyncio.to_thread(s3_client.delete_object, Bucket=bucket, Key=s3_key)
         logger.info("storage.deleted", key=s3_key)
         return {"success": True, "message": f"Deleted {s3_key}"}
     except Exception as exc:

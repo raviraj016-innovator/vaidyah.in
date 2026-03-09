@@ -74,7 +74,11 @@ export async function getSecret(secretName: string): Promise<string> {
  */
 export async function getJsonSecret<T = Record<string, string>>(secretName: string): Promise<T> {
   const raw = await getSecret(secretName);
-  return JSON.parse(raw) as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(`Invalid JSON in secret "${secretName}"`);
+  }
 }
 
 /**

@@ -108,6 +108,11 @@ async def get_current_user(
         )
 
     roles: list[str] = payload.get("roles", [])
+    # Also read from 'custom:role' and 'role' claims (gateway uses custom:role)
+    if not roles:
+        role_str = payload.get("custom:role") or payload.get("role")
+        if role_str:
+            roles = [role_str]
     return AuthenticatedUser(sub=sub, roles=roles, claims=payload)
 
 

@@ -37,6 +37,7 @@ import {
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { PageHeader } from '@/components/ui/page-header';
 import api from '@/lib/api/client';
+import { endpoints } from '@/lib/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Health Metric types
@@ -106,7 +107,7 @@ export default function HealthDataPage() {
   const handleRefresh = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/api/v1/patient/health/summary');
+      const { data } = await api.get(endpoints.patientHealth.summary);
       if (Array.isArray(data?.metrics)) setMetrics(data.metrics);
       if (Array.isArray(data?.alerts)) setAlerts(data.alerts);
       if (Array.isArray(data?.devices)) setDevices(data.devices);
@@ -117,12 +118,12 @@ export default function HealthDataPage() {
       );
     }
     setLoading(false);
-  }, [language, message]);
+  }, [language]);
 
   const handleSyncDevice = useCallback(async (deviceId: string) => {
     setSyncingDevice(deviceId);
     try {
-      await api.post('/api/v1/integration/wearables/sync', { deviceId });
+      await api.post(endpoints.integration.wearableSync, { deviceId });
       message.success(
         language === 'hi' ? 'डेटा सिंक हो गया' : 'Data synced successfully',
       );
@@ -140,11 +141,11 @@ export default function HealthDataPage() {
       );
     }
     setSyncingDevice(null);
-  }, [language, message]);
+  }, [language]);
 
   const handleConnectDevice = useCallback(async (deviceId: string) => {
     try {
-      await api.post('/api/v1/patient/profile/wearables', { deviceId, action: 'connect' });
+      await api.post(endpoints.patientHealth.wearables, { deviceId, action: 'connect' });
       setDevices((prev) =>
         prev.map((d) =>
           d.id === deviceId ? { ...d, connected: true } : d,
@@ -159,13 +160,17 @@ export default function HealthDataPage() {
         language === 'hi' ? 'कनेक्शन विफल' : 'Failed to connect device',
       );
     }
-  }, [language, message]);
+  }, [language]);
 
   const handleAcknowledgeAlert = useCallback((alertId: string) => {
     setAlerts((prev) =>
       prev.map((a) =>
         a.id === alertId ? { ...a, acknowledged: true } : a,
       ),
+    );
+    // Sync to backend
+    api.post(endpoints.patientHealth.alertAcknowledge(alertId)).catch((err) =>
+      console.error('Failed to acknowledge alert:', err),
     );
   }, []);
 

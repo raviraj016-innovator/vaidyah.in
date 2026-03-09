@@ -24,6 +24,7 @@ import { useTrialStore, Notification } from '@/stores/trial-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
+import api from '@/lib/api/client';
 
 
 // ---------------------------------------------------------------------------
@@ -102,12 +103,24 @@ export default function NotificationsPage() {
   const handleNotificationClick = useCallback(
     (notification: Notification) => {
       markNotificationRead(notification.id);
+      // Sync read status to backend
+      api.post(endpoints.notifications.markRead(notification.id)).catch((err) =>
+        console.error('Failed to mark notification read:', err),
+      );
       if (notification.trialId) {
         router.push(`/patient/trials/${encodeURIComponent(notification.trialId)}`);
       }
     },
     [markNotificationRead, router],
   );
+
+  const handleMarkAllRead = useCallback(() => {
+    markAllRead();
+    // Sync to backend
+    api.post(endpoints.notifications.markAllRead).catch((err) =>
+      console.error('Failed to mark all notifications read:', err),
+    );
+  }, [markAllRead]);
 
   return (
     <div>
@@ -126,7 +139,7 @@ export default function NotificationsPage() {
           unreadCount > 0 ? (
             <Button
               icon={<CheckOutlined />}
-              onClick={markAllRead}
+              onClick={handleMarkAllRead}
             >
               {language === 'hi' ? 'सभी पढ़ा हुआ करें' : 'Mark All Read'}
             </Button>

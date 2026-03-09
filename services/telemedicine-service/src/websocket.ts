@@ -75,13 +75,22 @@ export function setupWebSocket(server: HttpServer): WebSocketServer {
   });
 
   wss.on('connection', (ws: AuthenticatedSocket, req) => {
-    const url = new URL(req.url!, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token')!;
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+
+    if (!token) {
+      ws.close(1008, 'Token required');
+      return;
+    }
 
     try {
       const decoded = jwt.verify(token, config.jwt.secret) as Record<string, unknown>;
-      ws.userId = decoded.sub as string;
-      ws.role = decoded['custom:role'] as string;
+      if (typeof decoded.sub !== 'string') {
+        ws.close(1008, 'Invalid token claims');
+        return;
+      }
+      ws.userId = decoded.sub;
+      ws.role = (decoded['custom:role'] as string) || 'patient';
     } catch {
       ws.close(1008, 'Invalid token');
       return;
@@ -127,12 +136,16 @@ export function setupWebSocket(server: HttpServer): WebSocketServer {
   const heartbeat = setInterval(() => {
     wss.clients.forEach((ws) => {
       const authWs = ws as AuthenticatedSocket;
-      if (!authWs.isAlive) {
-        authWs.terminate();
-        return;
+      try {
+        if (!authWs.isAlive) {
+          authWs.terminate();
+          return;
+        }
+        authWs.isAlive = false;
+        authWs.ping();
+      } catch (err) {
+        console.error('[WebSocket] Heartbeat error:', err);
       }
-      authWs.isAlive = false;
-      authWs.ping();
     });
   }, 30_000);
 

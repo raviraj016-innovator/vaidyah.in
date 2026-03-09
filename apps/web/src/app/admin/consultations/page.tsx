@@ -184,7 +184,7 @@ export default function ConsultationsPage() {
           </div>
         </Space>
       ),
-      sorter: (a, b) => a.patientName.localeCompare(b.patientName),
+      sorter: (a, b) => (a.patientName ?? '').localeCompare(b.patientName ?? ''),
     },
     {
       title: 'Center',

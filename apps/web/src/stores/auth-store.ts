@@ -9,7 +9,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type PortalType = 'admin' | 'nurse' | 'patient';
 
-export type AdminRole = 'super_admin' | 'state_admin' | 'district_admin' | 'viewer';
+export type AdminRole = 'super_admin' | 'state_admin' | 'district_admin' | 'center_admin' | 'doctor' | 'viewer';
 export type NurseRole = 'nurse' | 'senior_nurse' | 'anm' | 'staff_nurse';
 export type PatientRole = 'patient';
 
@@ -135,6 +135,16 @@ const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
   district_admin: [
     'centers:read', 'users:read', 'consultations:read',
     'trials:read', 'analytics:read', 'system:read',
+  ],
+  center_admin: [
+    'centers:read', 'centers:write',
+    'users:read', 'users:write',
+    'consultations:read', 'consultations:write',
+    'trials:read', 'analytics:read', 'system:read',
+  ],
+  doctor: [
+    'consultations:read', 'consultations:write',
+    'trials:read', 'analytics:read',
   ],
   viewer: [
     'centers:read', 'users:read', 'consultations:read',

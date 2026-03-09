@@ -5,33 +5,47 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface ClinicalTrial {
   id: string;
+  nct_id?: string;
   nctId?: string;
   title: string;
   titleHi?: string;
-  summary: string;
+  summary?: string;
+  brief_summary?: string;
   summaryHi?: string;
+  plain_summary?: string;
+  plain_language_summary?: string;
   plainSummary?: string;
-  phase: string;
-  status: string;
-  conditions: string[];
+  phase?: string;
+  status?: string;
+  overall_status?: string;
+  conditions?: string[];
   categories?: string[];
-  sponsor: string;
+  sponsor?: string;
   eligibility?: {
     ageRange?: string;
+    age_min?: number;
+    age_max?: number;
     ageMin?: number;
     ageMax?: number;
+    minimum_age_years?: number;
+    maximum_age_years?: number;
     gender?: string;
     ageGroup?: string;
     raceEthnicity?: string;
     inclusion?: string[];
     exclusion?: string[];
+    inclusion_criteria?: string[];
+    exclusion_criteria?: string[];
   };
   locations?: Array<{
-    facility: string;
-    city: string;
-    state: string;
+    facility?: string;
+    facility_name?: string;
+    city?: string;
+    state?: string;
+    country?: string;
     distance?: number;
   }>;
+  contacts?: Array<{ name?: string; phone?: string; email?: string }>;
   contact?: { name?: string; phone?: string; email?: string };
   url?: string;
 }
