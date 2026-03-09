@@ -43,7 +43,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import api from '@/lib/api/client';
 import { endpoints } from '@/lib/api/endpoints';
-import VoiceBot from '@/components/voice-bot/VoiceBot';
+import { useVoiceBotStore } from '@/stores/voice-bot-store';
 
 // ---------------------------------------------------------------------------
 // Symptom taxonomy for manual entry
@@ -245,7 +245,14 @@ function ConsultationPageInner() {
 
   const [isPaused, setIsPaused] = useState(false);
   const [triageLoading, setTriageLoading] = useState(false);
-  const [voiceBotOpen, setVoiceBotOpen] = useState(false);
+  const setVoiceBotOpen = useVoiceBotStore((s) => s.setOpen);
+
+  // Auto-open voice chatbot when entering consultation (voice-first UX)
+  useEffect(() => {
+    if (patient && symptoms.length === 0) {
+      setVoiceBotOpen(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Audio recording refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -679,7 +686,6 @@ function ConsultationPageInner() {
         }
       />
 
-      <VoiceBot open={voiceBotOpen} onClose={() => setVoiceBotOpen(false)} />
 
       <Row gutter={[16, 16]}>
         {/* Left Panel (60%) */}
@@ -721,6 +727,61 @@ function ConsultationPageInner() {
                 {vitals.spO2 != null ? `${vitals.spO2}%` : '-'}
               </Descriptions.Item>
             </Descriptions>
+          </Card>
+
+          {/* Voice Assessment Card — prominent CTA */}
+          <Card
+            style={{
+              marginBottom: 16,
+              background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+              borderColor: '#c4b5fd',
+              cursor: 'pointer',
+            }}
+            styles={{ body: { padding: '16px 20px' } }}
+            onClick={() => setVoiceBotOpen(true)}
+            hoverable
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: 14,
+                  background: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <SoundOutlined style={{ fontSize: 24, color: '#fff' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Typography.Text strong style={{ fontSize: 15, display: 'block', marginBottom: 2 }}>
+                  {language === 'hi' ? 'वॉइस चैटबॉट से मूल्यांकन' : 'Voice Chatbot Assessment'}
+                </Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {symptoms.length > 0
+                    ? language === 'hi'
+                      ? `${symptoms.length} लक्षण दर्ज। फिर से चलाने के लिए क्लिक करें।`
+                      : `${symptoms.length} symptom${symptoms.length !== 1 ? 's' : ''} recorded. Click to run again.`
+                    : language === 'hi'
+                      ? 'मरीज़ से सवाल पूछकर लक्षण स्वतः भरें'
+                      : 'Auto-fill symptoms by asking the patient questions'}
+                </Typography.Text>
+              </div>
+              <Button
+                type="primary"
+                size="large"
+                icon={<SoundOutlined />}
+                style={{ background: '#7c3aed', borderColor: '#7c3aed', flexShrink: 0 }}
+                onClick={(e) => { e.stopPropagation(); setVoiceBotOpen(true); }}
+              >
+                {symptoms.length > 0
+                  ? language === 'hi' ? 'फिर से' : 'Redo'
+                  : language === 'hi' ? 'शुरू करें' : 'Start'}
+              </Button>
+            </div>
           </Card>
 
           {/* Detected Symptoms */}
@@ -1326,6 +1387,7 @@ function ConsultationPageInner() {
           </Space>
         </div>
       </Card>
+
     </div>
   );
 }

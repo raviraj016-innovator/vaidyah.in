@@ -137,6 +137,7 @@ interface VitalsFormProps {
   onSubmit: (values: VitalsData) => void;
   onCancel?: () => void;
   loading?: boolean;
+  externalForm?: ReturnType<typeof Form.useForm<VitalsData>>[0];
 }
 
 function VitalFieldStatus({ field, value, tempUnit }: { field: string; value?: number; tempUnit?: 'F' | 'C' }) {
@@ -161,8 +162,10 @@ export function VitalsForm({
   onSubmit,
   onCancel,
   loading = false,
+  externalForm,
 }: VitalsFormProps) {
-  const [form] = Form.useForm<VitalsData>();
+  const [internalForm] = Form.useForm<VitalsData>();
+  const form = externalForm ?? internalForm;
   const formValues = Form.useWatch([], form);
 
   const tempUnit = (formValues?.temperatureUnit ?? 'C') as 'F' | 'C';

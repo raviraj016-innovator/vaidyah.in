@@ -22,6 +22,7 @@ import {
   CheckCircleOutlined,
 } from '@ant-design/icons';
 import { authApi } from '@/lib/api/client';
+import { useAuthStore } from '@/stores/auth-store';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -86,6 +87,45 @@ export default function PatientOnboardingPage() {
       };
 
       await authApi.patch('/me/profile', payload);
+
+      // Fetch fresh profile and update store so profile page shows correct data
+      try {
+        const { data: meData } = await authApi.get('/me');
+        const profile = meData.data ?? meData;
+        useAuthStore.getState().updatePatientProfile({
+          name: profile.name,
+          age: profile.age,
+          gender: profile.gender,
+          abdmId: profile.abdm_id,
+          location: {
+            city: profile.district,
+            state: profile.state,
+            pincode: profile.pincode,
+          },
+          conditions: profile.conditions ?? profile.medical_history?.conditions ?? [],
+          medications: profile.medications ?? profile.medical_history?.medications ?? [],
+          allergies: profile.allergies ?? profile.medical_history?.allergies ?? [],
+          familyHistory: profile.familyHistory ?? profile.medical_history?.family_history ?? [],
+          profileComplete: true,
+        });
+      } catch {
+        // Fallback: update store with local form data
+        useAuthStore.getState().updatePatientProfile({
+          name: personalInfo?.name,
+          gender: personalInfo?.gender,
+          abdmId: personalInfo?.abdmId,
+          location: {
+            city: locationInfo?.district,
+            state: locationInfo?.state,
+            pincode: locationInfo?.pincode,
+          },
+          conditions: values.conditions ?? [],
+          medications: values.medications ?? [],
+          allergies: values.allergies ?? [],
+          familyHistory: values.familyHistory ? [values.familyHistory] : [],
+          profileComplete: true,
+        });
+      }
 
       message.success('Profile completed successfully!');
 

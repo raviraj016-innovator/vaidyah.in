@@ -172,6 +172,7 @@ interface AuthState {
   loginAdmin: (user: AdminUser, token: string, refreshToken: string) => void;
   loginNurse: (user: NurseUser, token: string, refreshToken: string) => void;
   loginPatient: (user: PatientUser, token: string, refreshToken: string) => void;
+  updatePatientProfile: (updates: Partial<PatientUser>) => void;
   loginAsGuest: (portal: PortalType) => void;
   logout: () => void;
   setLoading: (loading: boolean) => void;
@@ -236,6 +237,12 @@ export const useAuthStore = create<AuthState>()(
           isLoading: false,
           error: null,
         });
+      },
+
+      updatePatientProfile: (updates) => {
+        const { user, portalType } = get();
+        if (!user || portalType !== 'patient') return;
+        set({ user: { ...user, ...updates } as PatientUser });
       },
 
       loginAsGuest: (portal) => {

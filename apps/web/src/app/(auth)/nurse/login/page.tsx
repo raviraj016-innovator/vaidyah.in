@@ -98,10 +98,10 @@ export default function NurseLoginPage() {
       <Form form={form} layout="vertical" onFinish={handleLogin} autoComplete="off" size="large">
         <Form.Item
           name="identifier"
-          label={t('nurse.login.staffId') !== 'nurse.login.staffId' ? t('nurse.login.staffId') : 'Staff ID / Registration Number'}
-          rules={[{ required: true, message: 'Please enter your Staff ID' }]}
+          label={t('nurse.login.staffId') !== 'nurse.login.staffId' ? t('nurse.login.staffId') : 'Email or Phone'}
+          rules={[{ required: true, message: 'Please enter your email or phone number' }]}
         >
-          <Input prefix={<IdcardOutlined style={{ color: '#9ca3af' }} />} placeholder="e.g. NRS-12345" />
+          <Input prefix={<IdcardOutlined style={{ color: '#9ca3af' }} />} placeholder="e.g. nurse@example.com or 9876543210" />
         </Form.Item>
 
         <Form.Item

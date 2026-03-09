@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Card,
   Row,
@@ -104,7 +104,7 @@ export default function HealthDataPage() {
   const [loading, setLoading] = useState(false);
   const [syncingDevice, setSyncingDevice] = useState<string | null>(null);
 
-  const handleRefresh = useCallback(async () => {
+  const fetchHealthData = useCallback(async (showError = true) => {
     setLoading(true);
     try {
       const { data } = await api.get(endpoints.patientHealth.summary);
@@ -113,12 +113,24 @@ export default function HealthDataPage() {
       if (Array.isArray(data?.devices)) setDevices(data.devices);
     } catch (err) {
       console.error('Failed to fetch health data:', err);
-      message.error(
-        language === 'hi' ? 'डेटा लोड करने में विफल' : 'Failed to load health data',
-      );
+      if (showError) {
+        message.error(
+          language === 'hi' ? 'डेटा लोड करने में विफल' : 'Failed to load health data',
+        );
+      }
     }
     setLoading(false);
   }, [language]);
+
+  // Fetch health data on mount
+  useEffect(() => {
+    fetchHealthData(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    fetchHealthData(true);
+  }, [fetchHealthData]);
 
   const handleSyncDevice = useCallback(async (deviceId: string) => {
     setSyncingDevice(deviceId);
@@ -162,17 +174,28 @@ export default function HealthDataPage() {
     }
   }, [language]);
 
-  const handleAcknowledgeAlert = useCallback((alertId: string) => {
+  const handleAcknowledgeAlert = useCallback(async (alertId: string) => {
+    // Optimistic update
     setAlerts((prev) =>
       prev.map((a) =>
         a.id === alertId ? { ...a, acknowledged: true } : a,
       ),
     );
-    // Sync to backend
-    api.post(endpoints.patientHealth.alertAcknowledge(alertId)).catch((err) =>
-      console.error('Failed to acknowledge alert:', err),
-    );
-  }, []);
+    try {
+      await api.post(endpoints.patientHealth.alertAcknowledge(alertId));
+    } catch (err) {
+      console.error('Failed to acknowledge alert:', err);
+      // Rollback on failure
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === alertId ? { ...a, acknowledged: false } : a,
+        ),
+      );
+      message.error(
+        language === 'hi' ? 'अलर्ट स्वीकार करने में विफल' : 'Failed to acknowledge alert',
+      );
+    }
+  }, [language]);
 
   const unacknowledgedCount = alerts.filter((a) => !a.acknowledged).length;
 

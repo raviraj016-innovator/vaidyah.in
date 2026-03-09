@@ -2,11 +2,12 @@
 
 import { useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { App, Card, Typography, Descriptions, Tag, Space, Empty } from 'antd';
+import { App, Card, Typography, Descriptions, Tag, Space, Empty, Form } from 'antd';
 import { useTranslation } from '@/lib/i18n/use-translation';
 import { useSessionStore, VitalsData } from '@/stores/session-store';
 import { PageHeader } from '@/components/ui/page-header';
 import { VitalsForm } from '@/components/forms/vitals-form';
+import VoiceVitalsInput from '@/components/voice-bot/VoiceVitalsInput';
 import api from '@/lib/api/client';
 import { endpoints } from '@/lib/api/endpoints';
 
@@ -21,12 +22,19 @@ export default function VitalsEntryPage() {
   const setVitals = useSessionStore((s) => s.setVitals);
   const submitVitals = useSessionStore((s) => s.submitVitals);
 
+  // Shared form instance so voice input can auto-fill the form
+  const [form] = Form.useForm<VitalsData>();
+
+  const handleVitalsDetected = useCallback(
+    (detected: Partial<VitalsData>) => {
+      form.setFieldsValue(detected);
+    },
+    [form],
+  );
+
   const handleSubmit = useCallback(
     async (values: VitalsData) => {
-      setVitals(values);
-      submitVitals();
-
-      // POST vitals to backend
+      // POST vitals to backend first, then update store on success
       try {
         await api.post(endpoints.sessions.vitals(sessionId), {
           heartRate: values.heartRate,
@@ -40,16 +48,24 @@ export default function VitalsEntryPage() {
           height: values.height,
           painScore: values.painScore,
         });
+
+        setVitals(values);
+        submitVitals();
+
+        message.success(
+          language === 'hi'
+            ? 'वाइटल्स सफलतापूर्वक दर्ज किए गए'
+            : 'Vitals recorded successfully',
+        );
+        router.push(`/nurse/triage-result/${sessionId}`);
       } catch (err) {
         console.error('Failed to save vitals to backend:', err);
+        message.error(
+          language === 'hi'
+            ? 'वाइटल्स सहेजने में विफल। कृपया पुनः प्रयास करें।'
+            : 'Failed to save vitals. Please try again.',
+        );
       }
-
-      message.success(
-        language === 'hi'
-          ? 'वाइटल्स सफलतापूर्वक दर्ज किए गए'
-          : 'Vitals recorded successfully',
-      );
-      router.push(`/nurse/triage-result/${sessionId}`);
     },
     [setVitals, submitVitals, router, sessionId, language],
   );
@@ -132,15 +148,29 @@ export default function VitalsEntryPage() {
         </Descriptions>
       </Card>
 
-      {/* Vitals Form */}
+      {/* Voice Vitals — primary input (hands-free) */}
+      <VoiceVitalsInput
+        onVitalsDetected={handleVitalsDetected}
+        language={language === 'hi' ? 'hi' : 'en'}
+      />
+
+      {/* Vitals Form — secondary/manual input, auto-filled by voice */}
       <Card
         title={
           language === 'hi' ? 'वाइटल साइन्स' : 'Vital Signs'
+        }
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {language === 'hi'
+              ? 'वॉइस से भरा गया — नीचे सत्यापित करें'
+              : 'Auto-filled by voice — verify below'}
+          </Typography.Text>
         }
       >
         <VitalsForm
           onSubmit={handleSubmit}
           onCancel={handleCancel}
+          externalForm={form}
         />
       </Card>
     </div>

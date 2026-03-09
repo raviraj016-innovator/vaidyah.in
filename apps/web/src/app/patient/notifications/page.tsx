@@ -102,25 +102,34 @@ export default function NotificationsPage() {
 
   const handleNotificationClick = useCallback(
     (notification: Notification) => {
+      // Optimistic update
       markNotificationRead(notification.id);
-      // Sync read status to backend
-      api.post(endpoints.notifications.markRead(notification.id)).catch((err) =>
-        console.error('Failed to mark notification read:', err),
-      );
+      // Sync read status to backend — rollback on failure
+      api.post(endpoints.notifications.markRead(notification.id)).catch((err) => {
+        console.error('Failed to mark notification read:', err);
+        // Rollback: mark as unread again in store
+        const updated = notifications.map((n) =>
+          n.id === notification.id ? { ...n, read: false } : n,
+        );
+        setNotifications(updated);
+      });
       if (notification.trialId) {
         router.push(`/patient/trials/${encodeURIComponent(notification.trialId)}`);
       }
     },
-    [markNotificationRead, router],
+    [markNotificationRead, notifications, setNotifications, router],
   );
 
   const handleMarkAllRead = useCallback(() => {
+    const prevNotifications = [...notifications];
+    // Optimistic update
     markAllRead();
-    // Sync to backend
-    api.post(endpoints.notifications.markAllRead).catch((err) =>
-      console.error('Failed to mark all notifications read:', err),
-    );
-  }, [markAllRead]);
+    // Sync to backend — rollback on failure
+    api.post(endpoints.notifications.markAllRead).catch((err) => {
+      console.error('Failed to mark all notifications read:', err);
+      setNotifications(prevNotifications);
+    });
+  }, [markAllRead, notifications, setNotifications]);
 
   return (
     <div>

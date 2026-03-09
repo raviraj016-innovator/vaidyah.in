@@ -140,16 +140,43 @@ export default function PatientProfilePage() {
     setAllergies(user?.allergies ?? []);
   }, [user]);
 
+  const updatePatientProfile = useAuthStore((s) => s.updatePatientProfile);
+
+  // Fetch fresh profile on mount to ensure latest data
+  useEffect(() => {
+    if (!user || user.id?.startsWith('guest')) return;
+    authApi.get(endpoints.auth.me).then(({ data: meData }) => {
+      const profile = meData.data ?? meData;
+      updatePatientProfile({
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+        abdmId: profile.abdm_id,
+        location: {
+          city: profile.district,
+          state: profile.state,
+          pincode: profile.pincode,
+        },
+        conditions: profile.conditions ?? profile.medical_history?.conditions ?? [],
+        medications: profile.medications ?? profile.medical_history?.medications ?? [],
+        allergies: profile.allergies ?? profile.medical_history?.allergies ?? [],
+        familyHistory: profile.familyHistory ?? profile.medical_history?.family_history ?? [],
+        profileComplete: profile.profileComplete ?? true,
+      });
+    }).catch(() => { /* use cached store data */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const userName = user?.name ?? 'Patient User';
-  const userPhone = user?.phone ?? '9876543210';
-  const abdmId = user?.abdmId ?? '12-3456-7890-1234';
-  const userAge = user?.age ?? 52;
-  const userGender = user?.gender ?? 'Male';
+  const userPhone = user?.phone ?? '—';
+  const abdmId = user?.abdmId;
+  const userAge = user?.age;
+  const userGender = user?.gender;
   const userLocationRaw = user?.location;
   const userLocation =
     typeof userLocationRaw === 'object' && userLocationRaw
       ? [userLocationRaw.city, userLocationRaw.state, userLocationRaw.pincode].filter(Boolean).join(', ')
-      : (userLocationRaw ?? 'New Delhi, India');
+      : (userLocationRaw ?? undefined);
   const locationCity = typeof userLocationRaw === 'object' && userLocationRaw ? userLocationRaw.city : undefined;
   const locationState = typeof userLocationRaw === 'object' && userLocationRaw ? userLocationRaw.state : undefined;
   const locationPincode = typeof userLocationRaw === 'object' && userLocationRaw ? userLocationRaw.pincode : undefined;
@@ -168,18 +195,22 @@ export default function PatientProfilePage() {
     });
   }, [logout, language, modal]);
 
-  // Persist profile changes to backend
+  // Persist profile changes to backend and update store
   const syncProfile = useCallback(
     (updatedConditions: string[], updatedMedications: string[], updatedAllergies: string[]) => {
       authApi.patch(endpoints.auth.me + '/profile', {
-        medical_history: {
+        conditions: updatedConditions,
+        medications: updatedMedications,
+        allergies: updatedAllergies,
+      }).then(() => {
+        updatePatientProfile({
           conditions: updatedConditions,
           medications: updatedMedications,
-        },
-        allergies: updatedAllergies,
+          allergies: updatedAllergies,
+        });
       }).catch((err) => console.error('Failed to sync profile:', err));
     },
-    [],
+    [updatePatientProfile],
   );
 
   const handleAddCondition = useCallback(
@@ -288,10 +319,12 @@ export default function PatientProfilePage() {
               {userName}
             </Typography.Title>
             <Space direction="vertical" size={2} style={{ marginTop: 4 }}>
-              <Typography.Text type="secondary">
-                <IdcardOutlined style={{ marginRight: 6 }} />
-                ABDM: {abdmId}
-              </Typography.Text>
+              {abdmId && (
+                <Typography.Text type="secondary">
+                  <IdcardOutlined style={{ marginRight: 6 }} />
+                  ABDM: {abdmId}
+                </Typography.Text>
+              )}
               <Typography.Text type="secondary">
                 {userPhone}
               </Typography.Text>
@@ -312,13 +345,13 @@ export default function PatientProfilePage() {
       >
         <Descriptions column={{ xs: 1, sm: 2 }} size="small">
           <Descriptions.Item label={language === 'hi' ? 'उम्र' : 'Age'}>
-            {userAge} {language === 'hi' ? 'वर्ष' : 'years'}
+            {userAge ? `${userAge} ${language === 'hi' ? 'वर्ष' : 'years'}` : '—'}
           </Descriptions.Item>
           <Descriptions.Item label={language === 'hi' ? 'लिंग' : 'Gender'}>
-            {userGender}
+            {userGender ?? '—'}
           </Descriptions.Item>
           <Descriptions.Item label={language === 'hi' ? 'स्थान' : 'Location'}>
-            {userLocation}
+            {userLocation ?? '—'}
           </Descriptions.Item>
           {locationCity && (
             <Descriptions.Item label={language === 'hi' ? 'शहर' : 'City'}>
@@ -335,9 +368,11 @@ export default function PatientProfilePage() {
               {locationPincode}
             </Descriptions.Item>
           )}
-          <Descriptions.Item label="ABDM ID">
-            {abdmId}
-          </Descriptions.Item>
+          {abdmId && (
+            <Descriptions.Item label="ABDM ID">
+              {abdmId}
+            </Descriptions.Item>
+          )}
         </Descriptions>
       </Card>
 
@@ -364,14 +399,14 @@ export default function PatientProfilePage() {
           <Col xs={24} sm={8}>
             <Statistic
               title={language === 'hi' ? 'मिलान किए गए' : 'Matched'}
-              value={matchCount || 4}
+              value={matchCount}
               valueStyle={{ color: '#7c3aed' }}
             />
           </Col>
           <Col xs={24} sm={8}>
             <Statistic
               title={language === 'hi' ? 'पात्र' : 'Eligible'}
-              value={eligibleCount || 3}
+              value={eligibleCount}
               valueStyle={{ color: '#52c41a' }}
             />
           </Col>

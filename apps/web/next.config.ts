@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
     const isDev = process.env.NODE_ENV === 'development';
     const csp = isDev
       ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' ws: wss: *.amazonaws.com; frame-ancestors 'none';"
-      : `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' ${process.env.API_GATEWAY_URL || ''} *.amazonaws.com; frame-ancestors 'none';`;
+      : `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' ${process.env.API_GATEWAY_URL || ''} ${process.env.NEXT_PUBLIC_API_GATEWAY_URL || ''} *.amazonaws.com; frame-ancestors 'none';`;
 
     return [
       {
