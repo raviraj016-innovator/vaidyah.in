@@ -281,9 +281,9 @@ export default function UsersPage() {
       key: 'languages',
       width: 200,
       responsive: ['md'] as any,
-      render: (languages: string[]) => (
+      render: (languages: string[] | undefined) => (
         <Space size={[4, 4]} wrap>
-          {languages.map((lang) => (
+          {(languages ?? []).map((lang) => (
             <Tag key={lang} style={{ fontSize: 11 }}>
               {lang}
             </Tag>

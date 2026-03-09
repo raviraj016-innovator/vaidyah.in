@@ -247,6 +247,13 @@ function ConsultationPageInner() {
   const [triageLoading, setTriageLoading] = useState(false);
   const [voiceBotOpen, setVoiceBotOpen] = useState(false);
 
+  // Audio recording refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<any>(null);
+  const isPausedRef = useRef(false);
+
   const currentTranscript = transcript;
 
   // Session timer
@@ -260,6 +267,16 @@ function ConsultationPageInner() {
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [startedAt]);
+
+  // Cleanup audio resources on unmount
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort?.();
+      recognitionRef.current = null;
+      mediaRecorderRef.current?.stop?.();
+      mediaStreamRef.current?.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+    };
+  }, []);
 
   const formatDuration = (secs: number) => {
     const h = Math.floor(secs / 3600);
@@ -338,25 +355,151 @@ function ConsultationPageInner() {
     [addSymptom, symptoms, language],
   );
 
-  const handleStartRecording = () => {
-    setRecording(true);
-    setIsPaused(false);
-    message.info(
-      language === 'hi' ? 'रिकॉर्डिंग शुरू...' : 'Recording started...',
-    );
-  };
+  const startSpeechRecognition = useCallback(() => {
+    const SpeechRecognitionCtor =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+        : null;
+    if (!SpeechRecognitionCtor) return;
 
-  const handleStopRecording = () => {
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognitionRef.current = recognition;
+
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          const text = event.results[i][0].transcript.trim();
+          if (text) {
+            addTranscriptEntry({
+              id: `rec-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              speaker: 'patient',
+              text,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+      }
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if still recording and not paused
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state === 'recording' &&
+        !isPausedRef.current
+      ) {
+        try { recognitionRef.current?.start(); } catch { /* already started */ }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      console.error('Speech recognition error:', event.error);
+    };
+
+    recognition.start();
+  }, [language, addTranscriptEntry]);
+
+  const handleStartRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      // Prefer webm/opus, fall back to whatever is available
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : undefined;
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.start();
+      isPausedRef.current = false;
+      startSpeechRecognition();
+
+      setRecording(true);
+      setIsPaused(false);
+
+      addTranscriptEntry({
+        id: `sys-rec-start-${Date.now()}`,
+        speaker: 'system',
+        text: 'Recording started',
+        textHi: 'रिकॉर्डिंग शुरू',
+        timestamp: new Date().toISOString(),
+      });
+
+      message.success(
+        language === 'hi' ? 'रिकॉर्डिंग शुरू...' : 'Recording started',
+      );
+    } catch {
+      message.error(
+        language === 'hi'
+          ? 'माइक्रोफ़ोन का उपयोग नहीं कर पाए। कृपया अनुमति दें।'
+          : 'Could not access microphone. Please allow permission.',
+      );
+    }
+  }, [language, setRecording, addTranscriptEntry, startSpeechRecognition]);
+
+  const handleStopRecording = useCallback(() => {
+    // Stop speech recognition
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    recognitionRef.current = null;
+
+    // Stop recorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+
+    // Release microphone
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+
+    isPausedRef.current = false;
     setRecording(false);
     setIsPaused(false);
+
+    addTranscriptEntry({
+      id: `sys-rec-stop-${Date.now()}`,
+      speaker: 'system',
+      text: 'Recording stopped',
+      textHi: 'रिकॉर्डिंग रोकी गई',
+      timestamp: new Date().toISOString(),
+    });
+
     message.info(
       language === 'hi' ? 'रिकॉर्डिंग रोकी गई' : 'Recording stopped',
     );
-  };
+  }, [language, setRecording, addTranscriptEntry]);
 
-  const handlePauseResume = () => {
-    setIsPaused((prev) => !prev);
-  };
+  const handlePauseResume = useCallback(() => {
+    if (isPaused) {
+      // Resume
+      mediaRecorderRef.current?.resume();
+      isPausedRef.current = false;
+      setIsPaused(false);
+      startSpeechRecognition();
+      message.info(language === 'hi' ? 'रिकॉर्डिंग जारी' : 'Recording resumed');
+    } else {
+      // Pause
+      mediaRecorderRef.current?.pause();
+      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      recognitionRef.current = null;
+      isPausedRef.current = true;
+      setIsPaused(true);
+      message.info(language === 'hi' ? 'रिकॉर्डिंग रुकी' : 'Recording paused');
+    }
+  }, [isPaused, language, startSpeechRecognition]);
 
   // Fetch AI-suggested follow-up questions from NLU service
   // Fetch bilingual suggested follow-up questions (text/textHi/category)

@@ -189,6 +189,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
   const [isStarted, setIsStarted] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [interimText, setInterimText] = useState('');
+  const [isSupported, setIsSupported] = useState(false);
 
   // Conversation state
   const questionQueueRef = useRef<BotQuestion[]>([]);
@@ -197,11 +198,18 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const stoppedRef = useRef(false);
+  const existingSymptomsRef = useRef(existingSymptoms);
+  existingSymptomsRef.current = existingSymptoms;
 
   // Auto-scroll chat to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, interimText]);
+
+  // Check browser support (avoid SSR hydration mismatch)
+  useEffect(() => {
+    setIsSupported(getSpeechRecognition() !== null);
+  }, []);
 
   // Load voices (Chrome loads them async)
   useEffect(() => {
@@ -229,6 +237,10 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
       { id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, role, text, timestamp: new Date() },
     ]);
   }, []);
+
+  // ─── Refs to break circular callback dependencies ─────────────────────
+  const processAnswerRef = useRef<(text: string) => void>(() => {});
+  const askNextRef = useRef<() => void>(() => {});
 
   // ─── Listen for answer ──────────────────────────────────────────────────
 
@@ -272,7 +284,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
           text: final,
           timestamp: new Date().toISOString(),
         });
-        processAnswer(final);
+        processAnswerRef.current(final);
       }
     };
 
@@ -310,7 +322,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
       case 'chief_complaint':
       case 'more_symptoms': {
         if (question.type === 'more_symptoms' && isNegative(text)) {
-          askNext();
+          askNextRef.current();
           return;
         }
         const found = extractSymptoms(text);
@@ -367,7 +379,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
           }
           questionQueueRef.current.unshift(...newQuestions);
         }
-        askNext();
+        askNextRef.current();
         break;
       }
 
@@ -375,7 +387,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
         const severity = parseSeverity(text);
         const sym = detectedSymptomsRef.current.find((s) => s.id === question.symptomId);
         if (sym) sym.severity = severity;
-        askNext();
+        askNextRef.current();
         break;
       }
 
@@ -385,12 +397,12 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
         if (sym) sym.duration = duration;
         // Add symptom to session store immediately after duration is collected
         if (sym) {
-          const alreadyExists = existingSymptoms.some((es) => es.id === sym.id);
+          const alreadyExists = existingSymptomsRef.current.some((es) => es.id === sym.id);
           if (!alreadyExists) {
             addSymptom({ id: sym.id, name: sym.name, severity: sym.severity, duration: sym.duration });
           }
         }
-        askNext();
+        askNextRef.current();
         break;
       }
 
@@ -405,7 +417,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
             timestamp: new Date().toISOString(),
           });
         }
-        askNext();
+        askNextRef.current();
         break;
       }
 
@@ -419,14 +431,14 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
             timestamp: new Date().toISOString(),
           });
         }
-        askNext();
+        askNextRef.current();
         break;
       }
 
       default:
-        askNext();
+        askNextRef.current();
     }
-  }, [addSymptom, addTranscriptEntry, existingSymptoms]);
+  }, [addSymptom, addTranscriptEntry]);
 
   // ─── Ask next question in queue ─────────────────────────────────────────
 
@@ -462,11 +474,17 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
     const questionText = next.text[lang];
     addMessage('bot', questionText);
 
-    // Speak the question, then auto-start listening
+    // Speak the question, then auto-start listening (or auto-advance for greeting)
     setIsSpeaking(true);
     speak(questionText, lang, () => {
       setIsSpeaking(false);
-      if (next.type !== 'greeting' && !stoppedRef.current) {
+      if (stoppedRef.current) return;
+      if (next.type === 'greeting') {
+        // Auto-advance to first real question after greeting
+        setTimeout(() => {
+          if (!stoppedRef.current) askNextRef.current();
+        }, 500);
+      } else {
         // Small delay before listening
         setTimeout(() => {
           if (!stoppedRef.current) startListening();
@@ -474,6 +492,10 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
       }
     });
   }, [lang, addMessage, addTranscriptEntry, startListening]);
+
+  // Keep callback refs in sync so circular calls always use latest versions
+  processAnswerRef.current = processAnswer;
+  askNextRef.current = askNext;
 
   // ─── Start conversation ─────────────────────────────────────────────────
 
@@ -575,9 +597,7 @@ export default function VoiceBot({ open, onClose }: VoiceBotProps) {
     onClose();
   }, [onClose]);
 
-  // ─── Check browser support ─────────────────────────────────────────────
-
-  const isSupported = typeof window !== 'undefined' && getSpeechRecognition() !== null;
+  // isSupported is set via useEffect above to avoid SSR hydration mismatch
 
   return (
     <Drawer

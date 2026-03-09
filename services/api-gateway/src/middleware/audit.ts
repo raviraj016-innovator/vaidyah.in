@@ -111,50 +111,54 @@ function getClientIp(req: AuthenticatedRequest): string {
 
 /**
  * Persist audit entry to the `audit_log` table.
- * The table is expected to be created by a migration:
+ * Matches the actual schema from init.sql:
  *
- * CREATE TABLE IF NOT EXISTS audit_log (
- *   id            BIGSERIAL PRIMARY KEY,
- *   user_id       VARCHAR(128) NOT NULL,
- *   user_role     VARCHAR(32)  NOT NULL,
- *   action        VARCHAR(32)  NOT NULL,
- *   resource      VARCHAR(128) NOT NULL,
- *   resource_id   VARCHAR(128),
- *   ip_address    VARCHAR(64)  NOT NULL,
- *   user_agent    TEXT,
- *   request_method VARCHAR(10) NOT NULL,
- *   request_path  TEXT         NOT NULL,
- *   status_code   INTEGER,
- *   phi_accessed  BOOLEAN      NOT NULL DEFAULT FALSE,
- *   created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+ * CREATE TABLE audit_log (
+ *   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+ *   user_id         UUID REFERENCES users(id),
+ *   action          VARCHAR(100) NOT NULL,
+ *   resource_type   VARCHAR(50) NOT NULL,
+ *   resource_id     UUID,
+ *   details         JSONB DEFAULT '{}',
+ *   ip_address      INET,
+ *   created_at      TIMESTAMPTZ DEFAULT NOW()
  * );
- *
- * CREATE INDEX idx_audit_log_user     ON audit_log (user_id);
- * CREATE INDEX idx_audit_log_resource ON audit_log (resource, resource_id);
- * CREATE INDEX idx_audit_log_phi      ON audit_log (phi_accessed) WHERE phi_accessed = TRUE;
- * CREATE INDEX idx_audit_log_time     ON audit_log (created_at);
  */
 async function persistAuditEntry(entry: AuditEntry): Promise<void> {
+  // user_id is UUID FK to users — pass NULL for anonymous/non-UUID subjects
+  const userIdParam = entry.userId && entry.userId !== 'anonymous' && isUuid(entry.userId)
+    ? entry.userId
+    : null;
+
+  // resource_id must be a valid UUID or NULL
+  const resourceIdParam = entry.resourceId && isUuid(entry.resourceId)
+    ? entry.resourceId
+    : null;
+
+  const details = {
+    userRole: entry.userRole,
+    method: entry.requestMethod,
+    path: entry.requestPath,
+    statusCode: entry.statusCode,
+    phiAccessed: entry.phiAccessed,
+    userAgent: entry.userAgent,
+  };
+
   const sql = `
-    INSERT INTO audit_log (
-      user_id, user_role, action, resource, resource_id,
-      ip_address, user_agent, request_method, request_path,
-      status_code, phi_accessed, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    INSERT INTO audit_log (user_id, action, resource_type, resource_id, details, ip_address)
+    VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6::inet)
   `;
 
   await dbQuery(sql, [
-    entry.userId,
-    entry.userRole,
+    userIdParam,
     entry.action,
     entry.resource,
-    entry.resourceId ?? null,
+    resourceIdParam,
+    JSON.stringify(details),
     entry.ipAddress,
-    entry.userAgent,
-    entry.requestMethod,
-    entry.requestPath,
-    entry.statusCode ?? null,
-    entry.phiAccessed,
-    entry.timestamp,
   ]);
+}
+
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }

@@ -138,6 +138,7 @@ export const endpoints = {
     detectDialect: '/voice/detect-dialect',
     transcribe: '/voice/transcribe',
     synthesize: '/voice/synthesize',
+    prosody: '/voice/analyze-prosody',
   },
 
   // Patient Health

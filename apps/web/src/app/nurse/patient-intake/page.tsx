@@ -246,7 +246,7 @@ export default function PatientIntakePage() {
               form={form}
               layout="vertical"
               onFinish={handleSubmit}
-              requiredMark={false}
+              requiredMark="optional"
               size="large"
             >
               <Row gutter={16}>

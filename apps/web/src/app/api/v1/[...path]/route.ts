@@ -41,12 +41,23 @@ async function proxy(req: NextRequest) {
       responseHeaders.set(key, val);
     }
 
+    // Log backend errors for debugging (do not expose details to client)
+    if (upstream.status >= 500) {
+      const body = await upstream.text();
+      console.error(`[Proxy] Backend ${upstream.status} on ${req.method} ${path}:`, body.slice(0, 500));
+      return NextResponse.json(
+        JSON.parse(body || '{"success":false,"error":{"code":"BACKEND_ERROR","message":"Internal server error"}}'),
+        { status: upstream.status, headers: responseHeaders },
+      );
+    }
+
     return new NextResponse(upstream.body, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: responseHeaders,
     });
   } catch (err) {
+    console.error(`[Proxy] Unreachable ${req.method} ${path}:`, (err as Error).message);
     return NextResponse.json(
       { success: false, error: { code: 'PROXY_ERROR', message: 'Backend unreachable' } },
       { status: 502 },

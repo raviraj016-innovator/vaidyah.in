@@ -1013,9 +1013,9 @@ patientHealthRouter.get(
 
     // Latest vitals from consultations
     const vitalsRow = await queryOne(
-      `SELECT vitals FROM consultations
+      `SELECT vitals, created_at AS updated_at FROM consultations
        WHERE patient_id = $1 AND vitals IS NOT NULL
-       ORDER BY updated_at DESC LIMIT 1`,
+       ORDER BY created_at DESC LIMIT 1`,
       [patientId ?? null],
     );
 

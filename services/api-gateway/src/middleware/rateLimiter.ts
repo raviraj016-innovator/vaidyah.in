@@ -25,42 +25,56 @@ class RedisRateLimitStore {
   }
 
   async increment(id: string): Promise<{ totalHits: number; resetTime: Date }> {
-    const redis = getRedisClient();
-    const key = this.key(id);
+    try {
+      const redis = getRedisClient();
+      const key = this.key(id);
 
-    // Atomic INCR + conditional PEXPIRE via Lua script to prevent race conditions
-    const RATE_LIMIT_SCRIPT = `
-      local current = redis.call('INCR', KEYS[1])
-      if current == 1 then
-        redis.call('PEXPIRE', KEYS[1], ARGV[1])
-      end
-      local ttl = redis.call('PTTL', KEYS[1])
-      return {current, ttl}
-    `;
+      // Atomic INCR + conditional PEXPIRE via Lua script to prevent race conditions
+      const RATE_LIMIT_SCRIPT = `
+        local current = redis.call('INCR', KEYS[1])
+        if current == 1 then
+          redis.call('PEXPIRE', KEYS[1], ARGV[1])
+        end
+        local ttl = redis.call('PTTL', KEYS[1])
+        return {current, ttl}
+      `;
 
-    const result = await redis.eval(
-      RATE_LIMIT_SCRIPT,
-      1,
-      key,
-      String(this.windowMs),
-    ) as [number, number];
+      const result = await redis.eval(
+        RATE_LIMIT_SCRIPT,
+        1,
+        key,
+        String(this.windowMs),
+      ) as [number, number];
 
-    const totalHits = result[0];
-    const pttl = result[1];
+      const totalHits = result[0];
+      const pttl = result[1];
 
-    const resetTime = new Date(Date.now() + (pttl > 0 ? pttl : this.windowMs));
-    return { totalHits, resetTime };
+      const resetTime = new Date(Date.now() + (pttl > 0 ? pttl : this.windowMs));
+      return { totalHits, resetTime };
+    } catch (err) {
+      // Fail-open: allow request through when Redis is unavailable
+      console.warn('[RateLimiter] Redis increment failed, allowing request:', (err as Error).message);
+      return { totalHits: 0, resetTime: new Date(Date.now() + this.windowMs) };
+    }
   }
 
   async decrement(id: string): Promise<void> {
-    const redis = getRedisClient();
-    const key = this.key(id);
-    await redis.decr(key);
+    try {
+      const redis = getRedisClient();
+      const key = this.key(id);
+      await redis.decr(key);
+    } catch {
+      // Fail-open: ignore decrement errors
+    }
   }
 
   async resetKey(id: string): Promise<void> {
-    const redis = getRedisClient();
-    await redis.del(this.key(id));
+    try {
+      const redis = getRedisClient();
+      await redis.del(this.key(id));
+    } catch {
+      // Fail-open: ignore reset errors
+    }
   }
 }
 
