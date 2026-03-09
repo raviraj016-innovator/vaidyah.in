@@ -10,12 +10,15 @@ import {
   Empty,
   Card,
   App,
+  Tag,
 } from 'antd';
 import {
   ReloadOutlined,
   HeartOutlined,
   HeartFilled,
   CloseOutlined,
+  MedicineBoxOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore, PatientUser } from '@/stores/auth-store';
@@ -24,6 +27,29 @@ import { useTrialStore, TrialMatch } from '@/stores/trial-store';
 import { TrialCard } from '@/components/data-display/trial-card';
 import { fetchWithFallback } from '@/lib/api/query-helpers';
 import { endpoints } from '@/lib/api/endpoints';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface TrialSearchResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  trials: Array<{
+    nct_id: string;
+    title: string;
+    brief_title?: string;
+    overall_status?: string;
+    phase?: string;
+    conditions?: string[];
+    sponsor?: string;
+    enrollment_count?: number;
+    start_date?: string;
+    locations_count?: number;
+    score?: number;
+  }>;
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -41,6 +67,9 @@ export default function PatientHomePage() {
   const dismissMatch = useTrialStore((s) => s.dismissMatch);
 
   const patientId = user?.id ?? '';
+  const conditions = user?.conditions ?? [];
+
+  // Fetch pre-computed matches
   const { data: fetchedMatches, isLoading: loading, refetch } = useQuery({
     queryKey: ['patient', 'matches', patientId],
     queryFn: fetchWithFallback<TrialMatch[]>(
@@ -50,18 +79,48 @@ export default function PatientHomePage() {
     enabled: !!user,
   });
 
+  // Fetch condition-based trials when patient has conditions
+  const { data: searchResults, isLoading: searchLoading, refetch: refetchSearch } = useQuery({
+    queryKey: ['patient', 'condition-trials', conditions],
+    queryFn: fetchWithFallback<TrialSearchResponse>(
+      endpoints.trials.search,
+      undefined,
+      { params: { conditions, statuses: ['Recruiting'], page_size: 10 } },
+    ),
+    staleTime: 5 * 60_000,
+    enabled: !!user && conditions.length > 0,
+  });
+
   useEffect(() => {
     if (fetchedMatches) setMatches(fetchedMatches);
   }, [fetchedMatches, setMatches]);
 
   const handleRefresh = useCallback(() => {
     refetch();
-  }, [refetch]);
+    if (conditions.length > 0) refetchSearch();
+  }, [refetch, refetchSearch, conditions.length]);
 
   // Filter out dismissed trials
   const displayMatches = matches.filter(
     (m) => !dismissedMatchIds.includes(m.trial.id ?? m.trial.nct_id ?? ''),
   );
+
+  // Map search results to display format
+  const conditionTrials = (searchResults?.trials ?? [])
+    .filter((t) => !dismissedMatchIds.includes(t.nct_id))
+    .map((t) => ({
+      id: t.nct_id,
+      title: t.title,
+      summary: t.brief_title,
+      phase: t.phase,
+      status: t.overall_status,
+      conditions: t.conditions,
+      sponsor: t.sponsor,
+      score: t.score,
+    }));
+
+  const hasMatches = displayMatches.length > 0;
+  const hasConditionTrials = conditionTrials.length > 0;
 
   const handleSaveMatch = useCallback(
     (trialId: string) => {
@@ -111,30 +170,53 @@ export default function PatientHomePage() {
         </Typography.Text>
       </Card>
 
-      {/* Trial Matches Section */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 8,
-          marginBottom: 16,
-        }}
-      >
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {language === 'hi'
-            ? `ट्रायल मैच (${displayMatches.length})`
-            : `Trial Matches (${displayMatches.length})`}
-        </Typography.Title>
-        <Button
-          icon={<ReloadOutlined />}
-          onClick={handleRefresh}
-          loading={loading}
-        >
-          {language === 'hi' ? 'रीफ्रेश करें' : 'Refresh'}
-        </Button>
-      </div>
+      {/* Patient Conditions */}
+      {conditions.length > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Space size={8}>
+              <MedicineBoxOutlined style={{ color: '#7c3aed' }} />
+              <Typography.Text strong>
+                {language === 'hi' ? 'आपकी स्वास्थ्य स्थितियाँ' : 'Your Conditions'}
+              </Typography.Text>
+            </Space>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => router.push('/patient/profile')}
+            >
+              {language === 'hi' ? 'संपादित करें' : 'Edit'}
+            </Button>
+          </div>
+          <Space wrap size={[6, 6]}>
+            {conditions.map((c) => (
+              <Tag key={c} color="purple">{c}</Tag>
+            ))}
+          </Space>
+        </Card>
+      )}
+
+      {/* Prompt to add conditions if none exist */}
+      {conditions.length === 0 && !loading && displayMatches.length === 0 && (
+        <Card style={{ marginBottom: 16, textAlign: 'center', padding: '12px 0' }}>
+          <MedicineBoxOutlined style={{ fontSize: 32, color: '#9ca3af', marginBottom: 8 }} />
+          <Typography.Title level={5} style={{ margin: '0 0 4px' }}>
+            {language === 'hi'
+              ? 'अपनी स्वास्थ्य स्थितियाँ जोड़ें'
+              : 'Add Your Health Conditions'}
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            {language === 'hi'
+              ? 'प्रासंगिक क्लिनिकल ट्रायल से मिलान के लिए अपनी प्रोफ़ाइल में स्थितियाँ जोड़ें।'
+              : 'Add conditions in your profile to get matched with relevant clinical trials.'}
+          </Typography.Text>
+          <br />
+          <Button type="primary" onClick={() => router.push('/patient/profile')} style={{ marginTop: 12 }}>
+            {language === 'hi' ? 'प्रोफ़ाइल पर जाएँ' : 'Go to Profile'}
+          </Button>
+        </Card>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
@@ -145,27 +227,22 @@ export default function PatientHomePage() {
               : 'Updating matches...'}
           </Typography.Text>
         </div>
-      ) : displayMatches.length === 0 ? (
-        <Card>
-          <Empty
-            description={
-              <Space direction="vertical" size={8}>
-                <Typography.Title level={5} style={{ margin: 0 }}>
-                  {language === 'hi'
-                    ? 'अभी कोई मैच नहीं'
-                    : 'No matches yet'}
-                </Typography.Title>
-                <Typography.Text type="secondary">
-                  {language === 'hi'
-                    ? 'हम आपकी प्रोफाइल के आधार पर लगातार नए ट्रायल खोज रहे हैं। जल्द ही आपको सूचित किया जाएगा!'
-                    : 'We are continuously searching for new trials based on your profile. You will be notified soon!'}
-                </Typography.Text>
-              </Space>
-            }
-          />
-        </Card>
-      ) : (
+      ) : displayMatches.length > 0 ? (
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {language === 'hi'
+                ? `ट्रायल मैच (${displayMatches.length})`
+                : `Trial Matches (${displayMatches.length})`}
+            </Typography.Title>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={handleRefresh}
+              loading={loading || searchLoading}
+            >
+              {language === 'hi' ? 'रीफ्रेश करें' : 'Refresh'}
+            </Button>
+          </div>
           {displayMatches.map((match) => (
             <div key={match.trial.id} style={{ position: 'relative' }}>
               <TrialCard
@@ -214,7 +291,72 @@ export default function PatientHomePage() {
             </div>
           ))}
         </Space>
+      ) : null}
+
+      {/* Condition-based trial suggestions (when no pre-computed matches) */}
+      {!hasMatches && !loading && conditions.length > 0 && (
+        <>
+          {searchLoading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <Spin size="large" />
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+                {language === 'hi'
+                  ? 'आपकी स्थितियों के लिए ट्रायल खोज रहे हैं...'
+                  : 'Searching trials for your conditions...'}
+              </Typography.Text>
+            </div>
+          ) : hasConditionTrials ? (
+            <>
+              <Typography.Title level={4} style={{ margin: '24px 0 4px' }}>
+                {language === 'hi'
+                  ? `आपकी स्थितियों के लिए सुझाए गए ट्रायल (${conditionTrials.length})`
+                  : `Suggested Trials for Your Conditions (${conditionTrials.length})`}
+              </Typography.Title>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 13 }}>
+                {language === 'hi'
+                  ? 'ये भर्ती कर रहे ट्रायल आपकी स्वास्थ्य स्थितियों से मेल खाते हैं'
+                  : 'Recruiting trials matching your health conditions'}
+              </Typography.Text>
+              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                {conditionTrials.map((t) => (
+                  <TrialCard
+                    key={t.id}
+                    id={t.id}
+                    title={t.title}
+                    summary={t.summary}
+                    phase={t.phase}
+                    status={t.status}
+                    conditions={t.conditions}
+                    matchScore={t.score != null ? t.score : undefined}
+                    sponsor={t.sponsor}
+                    onClick={(id) => router.push(`/patient/trials/${id}`)}
+                  />
+                ))}
+              </Space>
+            </>
+          ) : (
+            <Card>
+              <Empty
+                description={
+                  <Space direction="vertical" size={8}>
+                    <Typography.Title level={5} style={{ margin: 0 }}>
+                      {language === 'hi'
+                        ? 'अभी कोई मैच नहीं'
+                        : 'No matching trials found'}
+                    </Typography.Title>
+                    <Typography.Text type="secondary">
+                      {language === 'hi'
+                        ? 'आपकी स्थितियों के लिए अभी कोई भर्ती ट्रायल उपलब्ध नहीं है। हम लगातार खोज रहे हैं!'
+                        : 'No recruiting trials match your conditions right now. We\'ll keep searching!'}
+                    </Typography.Text>
+                  </Space>
+                }
+              />
+            </Card>
+          )}
+        </>
       )}
+
     </div>
   );
 }
