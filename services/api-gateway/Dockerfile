@@ -3,17 +3,35 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies first for layer caching
-COPY package.json ./
-RUN npm install --ignore-scripts
+# Copy and build the aws-services dependency first
+COPY packages/aws-services/package.json ./packages/aws-services/
+RUN cd packages/aws-services && npm install --ignore-scripts
+
+COPY packages/aws-services/ ./packages/aws-services/
+RUN cd packages/aws-services && npm run build
+
+# Install api-gateway dependencies (with local package link)
+COPY services/api-gateway/package.json ./services/api-gateway/
+WORKDIR /app/services/api-gateway
+RUN npm install --ignore-scripts --install-links=false; \
+    rm -rf node_modules/@vaidyah/aws-services && \
+    mkdir -p node_modules/@vaidyah/aws-services && \
+    cp -r /app/packages/aws-services/dist node_modules/@vaidyah/aws-services/dist && \
+    cp /app/packages/aws-services/package.json node_modules/@vaidyah/aws-services/package.json && \
+    cd node_modules/@vaidyah/aws-services && npm install --omit=dev --ignore-scripts
 
 # Copy source and build
-COPY tsconfig.json ./
-COPY src/ ./src/
+COPY services/api-gateway/tsconfig.json ./
+COPY services/api-gateway/src/ ./src/
 RUN npm run build
 
 # Prune dev dependencies
-RUN npm prune --production
+RUN npm prune --production; \
+    rm -rf node_modules/@vaidyah/aws-services && \
+    mkdir -p node_modules/@vaidyah/aws-services && \
+    cp -r /app/packages/aws-services/dist node_modules/@vaidyah/aws-services/dist && \
+    cp /app/packages/aws-services/package.json node_modules/@vaidyah/aws-services/package.json && \
+    cd node_modules/@vaidyah/aws-services && npm install --omit=dev --ignore-scripts
 
 # ---- Production Stage ----
 FROM node:20-alpine AS production
@@ -26,9 +44,9 @@ RUN apk add --no-cache dumb-init && \
 WORKDIR /app
 
 # Copy only production artifacts
-COPY --from=builder --chown=vaidyah:vaidyah /app/dist ./dist
-COPY --from=builder --chown=vaidyah:vaidyah /app/node_modules ./node_modules
-COPY --from=builder --chown=vaidyah:vaidyah /app/package.json ./package.json
+COPY --from=builder --chown=vaidyah:vaidyah /app/services/api-gateway/dist ./dist
+COPY --from=builder --chown=vaidyah:vaidyah /app/services/api-gateway/node_modules ./node_modules
+COPY --from=builder --chown=vaidyah:vaidyah /app/services/api-gateway/package.json ./package.json
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
