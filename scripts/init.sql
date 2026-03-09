@@ -484,15 +484,15 @@ ON CONFLICT (code) DO NOTHING;
 -- Super admin seeded with password '12345678' hashed via pgcrypto bcrypt
 INSERT INTO users (id, name, email, phone, role, center_id, specialization, languages, password_hash) VALUES
   ('b1000000-0000-0000-0000-000000000001', 'Raviraj', 'raviraj@vaidyah.in', '9876500001', 'super_admin', 'a1000000-0000-0000-0000-000000000005', 'Public Health', ARRAY['en', 'hi'], crypt('12345678', gen_salt('bf'))),
-  ('b1000000-0000-0000-0000-000000000002', 'Dr. Rajesh Verma', 'dr.verma@vaidyah.health', '9876500002', 'doctor', 'a1000000-0000-0000-0000-000000000005', 'General Medicine', ARRAY['en', 'hi'], NULL),
-  ('b1000000-0000-0000-0000-000000000003', 'Anjali Devi', 'anjali@vaidyah.health', '9876500003', 'nurse', 'a1000000-0000-0000-0000-000000000001', NULL, ARRAY['hi'], NULL),
-  ('b1000000-0000-0000-0000-000000000004', 'Sunita Kumari', 'sunita@vaidyah.health', '9876500004', 'nurse', 'a1000000-0000-0000-0000-000000000001', NULL, ARRAY['hi', 'en'], NULL),
-  ('b1000000-0000-0000-0000-000000000005', 'Kavita Singh', 'kavita@vaidyah.health', '9876500005', 'nurse', 'a1000000-0000-0000-0000-000000000002', NULL, ARRAY['hi'], NULL),
-  ('b1000000-0000-0000-0000-000000000006', 'Dr. Meena Gupta', 'dr.gupta@vaidyah.health', '9876500006', 'doctor', 'a1000000-0000-0000-0000-000000000001', 'Pediatrics', ARRAY['en', 'hi'], NULL),
-  ('b1000000-0000-0000-0000-000000000007', 'Pooja Yadav', 'pooja@vaidyah.health', '9876500007', 'nurse', 'a1000000-0000-0000-0000-000000000003', NULL, ARRAY['hi'], NULL),
-  ('b1000000-0000-0000-0000-000000000008', 'Ritu Sharma', 'ritu@vaidyah.health', '9876500008', 'nurse', 'a1000000-0000-0000-0000-000000000004', NULL, ARRAY['hi', 'en'], NULL),
-  ('b1000000-0000-0000-0000-000000000009', 'Dr. Amit Kumar', 'dr.amit@vaidyah.health', '9876500009', 'doctor', 'a1000000-0000-0000-0000-000000000002', 'Internal Medicine', ARRAY['en', 'hi'], NULL),
-  ('b1000000-0000-0000-0000-000000000010', 'Neha Tiwari', 'neha@vaidyah.health', '9876500010', 'nurse', 'a1000000-0000-0000-0000-000000000006', NULL, ARRAY['hi'], NULL)
+  ('b1000000-0000-0000-0000-000000000002', 'Dr. Rajesh Verma', 'dr.verma@vaidyah.in', '9876500002', 'doctor', 'a1000000-0000-0000-0000-000000000005', 'General Medicine', ARRAY['en', 'hi'], NULL),
+  ('b1000000-0000-0000-0000-000000000003', 'Anjali Devi', 'anjali@vaidyah.in', '9876500003', 'nurse', 'a1000000-0000-0000-0000-000000000001', NULL, ARRAY['hi'], NULL),
+  ('b1000000-0000-0000-0000-000000000004', 'Sunita Kumari', 'sunita@vaidyah.in', '9876500004', 'nurse', 'a1000000-0000-0000-0000-000000000001', NULL, ARRAY['hi', 'en'], NULL),
+  ('b1000000-0000-0000-0000-000000000005', 'Kavita Singh', 'kavita@vaidyah.in', '9876500005', 'nurse', 'a1000000-0000-0000-0000-000000000002', NULL, ARRAY['hi'], NULL),
+  ('b1000000-0000-0000-0000-000000000006', 'Dr. Meena Gupta', 'dr.gupta@vaidyah.in', '9876500006', 'doctor', 'a1000000-0000-0000-0000-000000000001', 'Pediatrics', ARRAY['en', 'hi'], NULL),
+  ('b1000000-0000-0000-0000-000000000007', 'Pooja Yadav', 'pooja@vaidyah.in', '9876500007', 'nurse', 'a1000000-0000-0000-0000-000000000003', NULL, ARRAY['hi'], NULL),
+  ('b1000000-0000-0000-0000-000000000008', 'Ritu Sharma', 'ritu@vaidyah.in', '9876500008', 'nurse', 'a1000000-0000-0000-0000-000000000004', NULL, ARRAY['hi', 'en'], NULL),
+  ('b1000000-0000-0000-0000-000000000009', 'Dr. Amit Kumar', 'dr.amit@vaidyah.in', '9876500009', 'doctor', 'a1000000-0000-0000-0000-000000000002', 'Internal Medicine', ARRAY['en', 'hi'], NULL),
+  ('b1000000-0000-0000-0000-000000000010', 'Neha Tiwari', 'neha@vaidyah.in', '9876500010', 'nurse', 'a1000000-0000-0000-0000-000000000006', NULL, ARRAY['hi'], NULL)
 ON CONFLICT DO NOTHING;
 
 -- Patients

@@ -148,7 +148,7 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: config.isProd
-    ? [config.services?.apiGatewayUrl ?? 'https://api.vaidyah.health'].filter(Boolean)
+    ? [config.services?.apiGatewayUrl ?? 'https://api.vaidyah.in'].filter(Boolean)
     : (process.env.CORS_ALLOWED_ORIGINS ?? 'http://localhost:3000,http://localhost:5173').split(',').map(s => s.trim()).filter(Boolean),
   credentials: true,
 }));

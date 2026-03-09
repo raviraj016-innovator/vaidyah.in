@@ -124,6 +124,12 @@ authRouter.post(
         patient.date_of_birth && patient.gender && patient.address
       );
 
+      // Build location from address JSONB column
+      const addressObj = typeof patient.address === 'object' && patient.address ? patient.address : {};
+      const location = Object.keys(addressObj).length > 0
+        ? { city: addressObj.district, state: addressObj.state, pincode: addressObj.pincode }
+        : undefined;
+
       const user: Record<string, unknown> = {
         id: patient.id,
         name: patient.name,
@@ -131,6 +137,7 @@ authRouter.post(
         abdmId: patient.abdm_id,
         age: patient.age,
         gender: patient.gender,
+        location,
         conditions: patient.medical_history?.conditions || [],
         medications: patient.medical_history?.medications || [],
         allergies: patient.medical_history?.allergies || [],

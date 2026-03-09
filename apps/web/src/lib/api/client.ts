@@ -42,56 +42,6 @@ authApi.interceptors.request.use(
   (error: AxiosError) => Promise.reject(error),
 );
 
-// Guest mode interceptor: swallow errors and return mock empty responses
-function createGuestFallbackInterceptor() {
-  return (error: AxiosError) => {
-    const { isGuest } = useAuthStore.getState();
-    if (isGuest) {
-      // Return a mock successful response so pages render with empty state
-      const url = error.config?.url || '';
-      const mockData: Record<string, unknown> = { data: [], total: 0, success: true, message: 'Guest mode – demo data' };
-
-      // Provide sensible defaults for common endpoints
-      if (url.includes('/health')) mockData.status = 'ok';
-      if (url.includes('/nurse/dashboard/stats')) {
-        Object.assign(mockData, { data: { patientsSeen: 12, pendingTriage: 3, emergencies: 0 } });
-      } else if (url.includes('/stats') || url.includes('/analytics')) {
-        Object.assign(mockData, { total_patients: 1247, total_consultations: 3891, total_nurses: 48, total_centers: 12, active_sessions: 5 });
-      }
-      if (url.includes('/centers')) {
-        mockData.data = [
-          { id: 'demo-center-1', name: 'PHC Koregaon Park', type: 'PHC', district: 'Pune', state: 'Maharashtra', status: 'active', staffCount: 8, dailyAvg: 40, connectivity: 'good', latitude: 18.5362, longitude: 73.8939, totalPatients: 320, activeSince: '2024-01-15', lastSync: '2 min ago' },
-          { id: 'demo-center-2', name: 'CHC Hadapsar', type: 'CHC', district: 'Pune', state: 'Maharashtra', status: 'active', staffCount: 12, dailyAvg: 65, connectivity: 'good', latitude: 18.5089, longitude: 73.9260, totalPatients: 580, activeSince: '2023-08-10', lastSync: '5 min ago' },
-          { id: 'demo-center-3', name: 'PHC Kothrud', type: 'PHC', district: 'Pune', state: 'Maharashtra', status: 'active', staffCount: 6, dailyAvg: 28, connectivity: 'intermittent', latitude: 18.5074, longitude: 73.8077, totalPatients: 210, activeSince: '2024-06-01', lastSync: '15 min ago' },
-        ];
-        mockData.total = 3;
-      }
-      if (url.includes('/consultations')) {
-        mockData.data = [];
-        mockData.total = 0;
-      }
-      if (url.includes('/trials/search') || url.includes('/trials')) {
-        mockData.data = [];
-        mockData.trials = [];
-        mockData.total = 0;
-        mockData.facets = {};
-      }
-
-      return Promise.resolve({
-        data: mockData,
-        status: 200,
-        statusText: 'OK (Guest Mode)',
-        headers: {},
-        config: error.config!,
-      });
-    }
-    return Promise.reject(error);
-  };
-}
-
-api.interceptors.response.use(undefined, createGuestFallbackInterceptor());
-authApi.interceptors.response.use(undefined, createGuestFallbackInterceptor());
-
 // Mark 401 errors so downstream catch blocks can skip duplicate toasts
 function markAuthErrors(error: AxiosError) {
   if (error.response?.status === 401) {
@@ -133,8 +83,7 @@ function createRefreshInterceptor(axiosInstance: typeof api) {
 
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    const { isGuest, token } = useAuthStore.getState();
-    if (isGuest) return Promise.reject(error);
+    const { token } = useAuthStore.getState();
 
     // Don't attempt refresh if user has no token (e.g. on login page)
     if (!token) return Promise.reject(error);

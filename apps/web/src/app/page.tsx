@@ -21,8 +21,7 @@ import {
   ThunderboltOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
-import { useAuthStore, type PortalType } from '@/stores/auth-store';
-import { useAuth } from '@/lib/auth/use-auth';
+import { useAuthStore } from '@/stores/auth-store';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    DESIGN SYSTEM
@@ -1067,37 +1066,6 @@ const portals = [
   },
 ];
 
-function GuestButton({ portal, accent }: { portal: PortalType; accent: string }) {
-  const { guestLogin } = useAuth();
-  return (
-    <button
-      onClick={() => guestLogin(portal)}
-      style={{
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        background: 'transparent',
-        color: accent,
-        border: `1.5px solid ${accent}40`,
-        padding: '11px 20px',
-        borderRadius: 12,
-        fontSize: 13,
-        fontWeight: 600,
-        cursor: 'pointer',
-        fontFamily: font,
-        marginTop: 10,
-        transition: 'all 0.2s',
-      }}
-      onMouseOver={(e) => { e.currentTarget.style.background = `${accent}08`; }}
-      onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
-    >
-      Try as Guest
-    </button>
-  );
-}
-
 function Portals() {
   return (
     <section
@@ -1252,7 +1220,6 @@ function Portals() {
                         <ArrowRightOutlined style={{ fontSize: 13 }} />
                       </button>
                     </Link>
-                    <GuestButton portal={p.key as PortalType} accent={p.accent} />
                   </div>
                 </div>
               </div>

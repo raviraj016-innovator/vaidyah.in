@@ -9,7 +9,6 @@ import {
   IdcardOutlined,
   MedicineBoxOutlined,
   BankOutlined,
-  RocketOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
@@ -29,7 +28,7 @@ interface HealthCenter {
 export default function NurseLoginPage() {
   const [form] = Form.useForm();
   const router = useRouter();
-  const { loginNurse, guestLogin } = useAuth();
+  const { loginNurse } = useAuth();
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -132,17 +131,6 @@ export default function NurseLoginPage() {
             style={{ height: 46, fontWeight: 600, background: '#0d9488', borderColor: '#0d9488' }}
           >
             {t('nurse.login.signIn') !== 'nurse.login.signIn' ? t('nurse.login.signIn') : 'Sign In'}
-          </Button>
-        </Form.Item>
-
-        <Form.Item style={{ marginBottom: 16 }}>
-          <Button
-            block
-            icon={<RocketOutlined />}
-            onClick={() => guestLogin('nurse')}
-            style={{ height: 46, fontWeight: 600, borderColor: '#0d9488', color: '#0d9488' }}
-          >
-            {language === 'hi' ? 'अतिथि के रूप में आज़माएं' : 'Try as Guest'}
           </Button>
         </Form.Item>
 

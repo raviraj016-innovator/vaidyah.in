@@ -65,56 +65,6 @@ export interface PatientUser {
 
 export type AuthUser = AdminUser | NurseUser | PatientUser;
 
-// ---------------------------------------------------------------------------
-// Guest demo profiles
-// ---------------------------------------------------------------------------
-
-export const GUEST_ADMIN: AdminUser = {
-  id: 'guest-admin',
-  email: 'guest@vaidyah.demo',
-  name: 'Dr. Demo Admin',
-  role: 'super_admin',
-  permissions: [
-    'centers:read', 'centers:write', 'centers:delete',
-    'users:read', 'users:write', 'users:delete',
-    'consultations:read', 'consultations:write',
-    'trials:read', 'trials:write', 'trials:sync',
-    'analytics:read', 'system:read', 'system:manage',
-  ],
-  state: 'Maharashtra',
-  district: 'Pune',
-  lastLogin: new Date().toISOString(),
-  profileComplete: true,
-};
-
-export const GUEST_NURSE: NurseUser = {
-  id: 'guest-nurse',
-  name: 'Nurse Demo',
-  registrationNumber: 'NRS-DEMO-001',
-  role: 'senior_nurse',
-  centerId: 'demo-center-1',
-  centerName: 'PHC Koregaon Park',
-  phone: '9876543210',
-  qualifications: ['GNM', 'BSc Nursing'],
-  profileComplete: true,
-};
-
-export const GUEST_PATIENT: PatientUser = {
-  id: 'guest-patient',
-  name: 'Patient Demo',
-  phone: '9876543210',
-  age: 35,
-  gender: 'male',
-  location: { city: 'Pune', state: 'Maharashtra', pincode: '411001' },
-  conditions: ['Type 2 Diabetes', 'Hypertension'],
-  medications: ['Metformin 500mg', 'Amlodipine 5mg'],
-  allergies: ['Penicillin'],
-  familyHistory: ['Diabetes', 'Heart Disease'],
-  profileComplete: true,
-};
-
-const GUEST_TOKEN = 'guest-demo-token';
-
 const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
   super_admin: [
     'centers:read', 'centers:write', 'centers:delete',
@@ -166,14 +116,11 @@ interface AuthState {
   error: string | null;
   language: 'en' | 'hi';
 
-  isGuest: boolean;
-
   // Actions
   loginAdmin: (user: AdminUser, token: string, refreshToken: string) => void;
   loginNurse: (user: NurseUser, token: string, refreshToken: string) => void;
   loginPatient: (user: PatientUser, token: string, refreshToken: string) => void;
   updatePatientProfile: (updates: Partial<PatientUser>) => void;
-  loginAsGuest: (portal: PortalType) => void;
   logout: () => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -196,7 +143,6 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       refreshToken: null,
       isAuthenticated: false,
-      isGuest: false,
       isLoading: false,
       error: null,
       language: 'en',
@@ -207,7 +153,6 @@ export const useAuthStore = create<AuthState>()(
           token,
           refreshToken,
           isAuthenticated: true,
-          isGuest: false,
           isLoading: false,
           error: null,
         });
@@ -220,7 +165,6 @@ export const useAuthStore = create<AuthState>()(
           token,
           refreshToken,
           isAuthenticated: true,
-          isGuest: false,
           isLoading: false,
           error: null,
         });
@@ -233,7 +177,6 @@ export const useAuthStore = create<AuthState>()(
           token,
           refreshToken,
           isAuthenticated: true,
-          isGuest: false,
           isLoading: false,
           error: null,
         });
@@ -245,24 +188,6 @@ export const useAuthStore = create<AuthState>()(
         set({ user: { ...user, ...updates } as PatientUser });
       },
 
-      loginAsGuest: (portal) => {
-        const guestUsers: Record<PortalType, AuthUser> = {
-          admin: GUEST_ADMIN,
-          nurse: GUEST_NURSE,
-          patient: GUEST_PATIENT,
-        };
-        set({
-          portalType: portal,
-          user: guestUsers[portal],
-          token: GUEST_TOKEN,
-          refreshToken: null,
-          isAuthenticated: true,
-          isGuest: true,
-          isLoading: false,
-          error: null,
-        });
-      },
-
       logout: () => {
         set({
           portalType: null,
@@ -270,7 +195,6 @@ export const useAuthStore = create<AuthState>()(
           token: null,
           refreshToken: null,
           isAuthenticated: false,
-          isGuest: false,
           isLoading: false,
           error: null,
         });
@@ -313,7 +237,6 @@ export const useAuthStore = create<AuthState>()(
         token: state.token,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
-        isGuest: state.isGuest,
         portalType: state.portalType,
         user: state.user,
       }),

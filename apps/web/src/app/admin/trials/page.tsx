@@ -150,9 +150,13 @@ export default function AdminTrialsPage() {
     fetchTrials(page);
   }, [fetchTrials, page]);
 
-  // CSV upload handler — uploads directly to EC2 backend to bypass
-  // Vercel's 4.5 MB body size limit on serverless functions.
+  // CSV upload via Next.js proxy (max ~4.5 MB on Vercel free tier).
+  // For larger files, use the server-side CLI: scripts/ingest-trials.sh on EC2.
   const handleUpload = useCallback(async (file: File) => {
+    if (file.size > 4 * 1024 * 1024) {
+      message.error('File too large for web upload (max 4 MB). Use the server-side CLI on EC2 instead.');
+      return false;
+    }
     setImporting(true);
     setImportStatus(null);
 
@@ -160,21 +164,9 @@ export default function AdminTrialsPage() {
     formData.append('file', file);
 
     try {
-      const gatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL;
-      if (gatewayUrl) {
-        // Direct upload to EC2 backend (bypasses Vercel proxy size limit)
-        const token = (await import('@/stores/auth-store')).useAuthStore.getState().token;
-        await fetch(`${gatewayUrl}/api/v1/trials/csv/upload`, {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: formData,
-        }).then((r) => { if (!r.ok) throw new Error(`Upload failed: ${r.status}`); });
-      } else {
-        // Fallback: through Next.js proxy (works for small files in dev)
-        await api.post(endpoints.trials.csvUpload, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
-      }
+      await api.post(endpoints.trials.csvUpload, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
       message.success('CSV upload started. Processing in background...');
 
       // Clear any existing poll before starting a new one
@@ -382,7 +374,9 @@ export default function AdminTrialsPage() {
               </Button>
             </Upload>
             <Text type="secondary" style={{ fontSize: 13 }}>
-              Expected columns: nct_id, title, status, phase, condition, categories, age_group, min_age, max_age, gender, race_ethnicity, sponsor, locations, start_date, plain_english_summary, brief_summary, url
+              Max 4 MB via web. For larger files, use <Text code style={{ fontSize: 12 }}>scripts/ingest-trials.sh</Text> on EC2.
+              <br />
+              Columns: nct_id, title, status, phase, condition, categories, age_group, min_age, max_age, gender, race_ethnicity, sponsor, locations, start_date, plain_english_summary, brief_summary, url
             </Text>
           </div>
 

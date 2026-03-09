@@ -5,7 +5,6 @@ import { Layout, Tooltip, Button } from 'antd';
 import { SoundOutlined } from '@ant-design/icons';
 import { AuthGuard } from '@/lib/auth/auth-guard';
 import { NurseHeader } from '@/components/layout/nurse-header';
-import { GuestBanner } from '@/components/layout/guest-banner';
 import { useVoiceBotStore } from '@/stores/voice-bot-store';
 import { useSessionStore } from '@/stores/session-store';
 import VoiceBot from '@/components/voice-bot/VoiceBot';
@@ -22,7 +21,6 @@ function NurseLayoutInner({ children }: { children: React.ReactNode }) {
         @media (max-width: 768px) { .nurse-content { padding: 16px; } }
         @media (max-width: 480px) { .nurse-content { padding: 12px; } }
       `}</style>
-      <GuestBanner />
       <NurseHeader />
       <Layout.Content className="nurse-content">
         {children}

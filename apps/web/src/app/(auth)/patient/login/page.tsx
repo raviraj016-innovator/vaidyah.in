@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Card, Form, Input, Button, Alert, Typography, Divider, Space } from 'antd';
-import { PhoneOutlined, LockOutlined, HeartOutlined, RocketOutlined } from '@ant-design/icons';
+import { PhoneOutlined, LockOutlined, HeartOutlined } from '@ant-design/icons';
 import { useAuth } from '@/lib/auth/use-auth';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTranslation } from '@/lib/i18n/use-translation';
@@ -13,7 +13,7 @@ const { Title, Text } = Typography;
 
 export default function PatientLoginPage() {
   const [form] = Form.useForm();
-  const { loginPatient, guestLogin } = useAuth();
+  const { loginPatient } = useAuth();
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const setError = useAuthStore((s) => s.setError);
@@ -84,17 +84,6 @@ export default function PatientLoginPage() {
             style={{ height: 46, fontWeight: 600 }}
           >
             {language === 'hi' ? 'साइन इन करें' : 'Sign In'}
-          </Button>
-        </Form.Item>
-
-        <Form.Item style={{ marginBottom: 16 }}>
-          <Button
-            block
-            icon={<RocketOutlined />}
-            onClick={() => guestLogin('patient')}
-            style={{ height: 46, fontWeight: 600, borderColor: '#7c3aed', color: '#7c3aed' }}
-          >
-            {language === 'hi' ? 'अतिथि के रूप में आज़माएं' : 'Try as Guest'}
           </Button>
         </Form.Item>
 

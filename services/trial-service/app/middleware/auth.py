@@ -69,6 +69,14 @@ async def get_current_user(
     token is provided a synthetic dev user is returned so that endpoints can be
     exercised without a real auth server.
     """
+    # Allow localhost callers with X-Internal-Service header (e.g. ingest script on EC2)
+    internal = request.headers.get("x-internal-service")
+    if internal and credentials is None:
+        client_host = request.client.host if request.client else ""
+        if client_host in ("127.0.0.1", "::1", "localhost"):
+            logger.info("internal_service_auth", path=request.url.path, client=client_host)
+            return AuthenticatedUser(sub="internal-service", roles=["admin"], claims={})
+
     if credentials is None or not credentials.credentials:
         if settings.environment == "development" and os.environ.get("ALLOW_DEV_AUTH") == "true":
             logger.debug("dev_mode_no_token", path=request.url.path)

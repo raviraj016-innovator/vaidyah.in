@@ -472,7 +472,7 @@ def _build_email_body(count: int, patient_id: str) -> tuple[str, str]:
 
     Returns a ``(html_body, text_body)`` tuple.
     """
-    app_url = "https://app.vaidyah.health"
+    app_url = "https://app.vaidyah.in"
     matches_url = f"{app_url}/patient/trials"
     unsubscribe_url = f"{app_url}/patient/notifications?unsubscribe=true"
 

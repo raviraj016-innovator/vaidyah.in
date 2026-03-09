@@ -112,7 +112,7 @@ export const config = {
     hiuName: optionalEnv('ABDM_HIU_NAME', 'Vaidyah Health Platform'),
 
     // Callback URLs
-    callbackBaseUrl: requireEnv('ABDM_CALLBACK_BASE_URL', 'https://api.vaidyah.health/integration'),
+    callbackBaseUrl: requireEnv('ABDM_CALLBACK_BASE_URL', 'https://api.vaidyah.in/integration'),
 
     // Token cache TTL (in seconds)
     tokenCacheTtl: optionalIntEnv('ABDM_TOKEN_CACHE_TTL', 1500), // 25 minutes (token valid for 30 min)
@@ -142,7 +142,7 @@ export const config = {
   // ─── Wearable APIs ──────────────────────────────────────────────────────
   wearables: {
     appleHealth: {
-      serverUrl: optionalEnv('APPLE_HEALTH_SERVER_URL', 'https://api.apple-health-proxy.vaidyah.health'),
+      serverUrl: optionalEnv('APPLE_HEALTH_SERVER_URL', 'https://api.apple-health-proxy.vaidyah.in'),
       teamId: process.env.APPLE_TEAM_ID,
       serviceId: process.env.APPLE_SERVICE_ID,
       keyId: process.env.APPLE_KEY_ID,

@@ -877,7 +877,7 @@ CORS_ORIGINS=https://vaidyah.vercel.app,http://localhost:3000,http://localhost:3
 If you have a custom domain, include it:
 
 ```bash
-CORS_ORIGINS=https://vaidyah.vercel.app,https://app.vaidyah.health,http://localhost:3000
+CORS_ORIGINS=https://vaidyah.vercel.app,https://app.vaidyah.in,http://localhost:3000
 ```
 
 Restart the API gateway to pick up the change:
@@ -908,7 +908,7 @@ aws ec2 authorize-security-group-ingress \
 ### 9.7 Custom Domain (Optional)
 
 1. In **Vercel Dashboard** → your project → **Settings** → **Domains**
-2. Add your domain (e.g., `app.vaidyah.health`)
+2. Add your domain (e.g., `app.vaidyah.in`)
 3. Update your DNS provider:
    - **CNAME**: `app` → `cname.vercel-dns.com`
    - Or delegate nameservers to Vercel
@@ -1085,7 +1085,7 @@ curl -s https://your-app.vercel.app/api/v1/health
 # Register/login (dev mode with HS256 JWT)
 curl -s -X POST http://$EC2_IP:3000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@vaidyah.health", "password": "admin123"}' | jq .
+  -d '{"email": "admin@vaidyah.in", "password": "admin123"}' | jq .
 ```
 
 ### 11.3 Test NLU Service (Bedrock)

@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, type AdminUser, type NurseUser, type PatientUser, type Permission, type PortalType } from '@/stores/auth-store';
+import { useAuthStore, type AdminUser, type NurseUser, type PatientUser, type Permission } from '@/stores/auth-store';
 import { authApi } from '@/lib/api/client';
 import { endpoints } from '@/lib/api/endpoints';
 
@@ -13,7 +13,6 @@ export function useAuth() {
   const portalType = useAuthStore((s) => s.portalType);
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const isGuest = useAuthStore((s) => s.isGuest);
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const language = useAuthStore((s) => s.language);
@@ -113,16 +112,6 @@ export function useAuth() {
     }
   };
 
-  const guestLogin = (portal: PortalType) => {
-    useAuthStore.getState().loginAsGuest(portal);
-    const destinations: Record<PortalType, string> = {
-      admin: '/admin/dashboard',
-      nurse: '/nurse/dashboard',
-      patient: '/patient/home',
-    };
-    router.push(destinations[portal]);
-  };
-
   const logout = () => {
     useAuthStore.getState().logout();
     router.push('/');
@@ -158,14 +147,12 @@ export function useAuth() {
     portalType,
     user,
     isAuthenticated,
-    isGuest,
     isLoading,
     error,
     language,
     loginAdmin,
     loginNurse,
     loginPatient,
-    guestLogin,
     logout,
     hasPermission,
     hasAnyPermission,
