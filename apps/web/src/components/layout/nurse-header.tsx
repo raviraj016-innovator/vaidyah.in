@@ -15,14 +15,19 @@ import { SyncStatusBadge } from '@/components/layout/sync-status-badge';
 export function NurseHeader() {
   const user = useAuthStore((s) => s.user) as NurseUser | null;
   const { logout } = useAuth();
+  const [mounted, setMounted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const check = () => setIsMobile(window.innerWidth <= 640);
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  // Before mount, render desktop layout (matches SSR)
+  const mobile = mounted && isMobile;
 
   const userName = user?.name ?? 'Nurse';
   const centerName = user?.centerName ?? 'Health Center';
@@ -34,7 +39,7 @@ export function NurseHeader() {
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
         borderBottom: '1px solid #f0f0f0',
-        padding: isMobile ? '0 12px' : '0 24px',
+        padding: mobile ? '0 12px' : '0 24px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -46,7 +51,7 @@ export function NurseHeader() {
       }}
     >
       {/* Left: Logo + Center Name */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, minWidth: 0, flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 8 : 14, minWidth: 0, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div
             style={{
@@ -62,7 +67,7 @@ export function NurseHeader() {
           >
             <HeartOutlined style={{ fontSize: 16, color: '#fff' }} />
           </div>
-          {!isMobile && (
+          {!mobile && (
             <Typography.Title
               level={4}
               style={{
@@ -77,7 +82,7 @@ export function NurseHeader() {
             </Typography.Title>
           )}
         </div>
-        {!isMobile && (
+        {!mobile && (
           <>
             <div
               style={{
@@ -98,8 +103,8 @@ export function NurseHeader() {
       </div>
 
       {/* Right: Sync + Language + User + Logout */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 16, flexShrink: 0 }}>
-        {!isMobile && <SyncStatusBadge />}
+      <div style={{ display: 'flex', alignItems: 'center', gap: mobile ? 8 : 16, flexShrink: 0 }}>
+        {!mobile && <SyncStatusBadge />}
         <LanguageSwitcher />
         <Dropdown
           menu={{
@@ -139,7 +144,7 @@ export function NurseHeader() {
               src={user?.avatar}
               style={{ backgroundColor: '#7c3aed', flexShrink: 0 }}
             />
-            {!isMobile && (
+            {!mobile && (
               <Typography.Text
                 strong
                 style={{ fontSize: 13, maxWidth: 120, display: 'inline-block', letterSpacing: '-0.01em' }}

@@ -1470,7 +1470,7 @@ export default function RootPage() {
   const router = useRouter();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const portalType = useAuthStore((s) => s.portalType);
-  const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated());
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     if (hydrated) return;

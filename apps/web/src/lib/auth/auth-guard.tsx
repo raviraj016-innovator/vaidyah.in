@@ -15,8 +15,8 @@ export function AuthGuard({ children, requiredPortal }: AuthGuardProps) {
   const portalType = useAuthStore((s) => s.portalType);
   const userRole = useAuthStore((s) => s.user && 'role' in s.user ? s.user.role : null);
 
-  // Initialize synchronously — avoids 1-frame spinner flash when store is already hydrated
-  const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated());
+  // Always start false to match server render, then update after mount
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     if (hydrated) return;
