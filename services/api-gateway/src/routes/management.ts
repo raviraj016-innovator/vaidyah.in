@@ -882,120 +882,48 @@ trialExtRouter.use(authenticate as never);
 trialExtRouter.use(roleRateLimiter as never);
 trialExtRouter.use(auditLogger as never);
 
-// GET /trials (list)
+// GET /trials (list) — forward to trial service search endpoint
 trialExtRouter.get(
   '/',
   asyncHandler(async (req: Request, res: Response) => {
+    const { forwardRequest } = await import('../services/proxy');
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
-    const offset = (page - 1) * limit;
 
-    const rows = await queryRows(
-      `SELECT id, nct_id, nct_id AS "nctId", title,
-              brief_summary, brief_summary AS summary,
-              plain_summary, plain_summary AS "plainSummary",
-              conditions, phase, status, sponsor,
-              start_date, completion_date, enrollment, locations, eligibility, metadata
-       FROM clinical_trials
-       ORDER BY last_updated DESC NULLS LAST
-       LIMIT $1 OFFSET $2`,
-      [limit, offset],
-    );
-    const countResult = await queryOne<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM clinical_trials`, [],
-    );
-    res.json({ success: true, data: rows, meta: { page, limit, total: parseInt(countResult?.count ?? '0', 10) } });
+    // Forward to trial service search with pagination (override query to cap limit)
+    const upstream = await forwardRequest('trial', req, '/api/v1/search', {
+      query: { page: String(page), limit: String(limit) },
+    });
+    const body = upstream.body as Record<string, unknown>;
+
+    // Transform trial-service response shape to match frontend expectations
+    const trials = (body.trials ?? body.data ?? []) as Record<string, unknown>[];
+    const total = (body.total ?? trials.length) as number;
+
+    const data = trials.map((t: Record<string, unknown>) => ({
+      id: t.nct_id,
+      nct_id: t.nct_id,
+      nctId: t.nct_id,
+      title: t.title ?? t.brief_title,
+      brief_summary: t.brief_summary ?? '',
+      summary: t.brief_summary ?? '',
+      plain_summary: t.plain_language_summary ?? '',
+      plainSummary: t.plain_language_summary ?? '',
+      conditions: t.conditions ?? [],
+      phase: t.phase,
+      status: t.overall_status ?? t.status,
+      sponsor: t.sponsor,
+      start_date: t.start_date,
+      eligibility: t.eligibility,
+      metadata: { categories: t.categories, age_group: t.age_group, race_ethnicity: t.race_ethnicity },
+    }));
+
+    res.json({ success: true, data, meta: { page, limit, total } });
   }),
 );
 
-// GET /trials/matches
-trialExtRouter.get(
-  '/matches',
-  asyncHandler(async (req: Request, res: Response) => {
-    const authReq = req as AuthenticatedRequest;
-    const patientId = req.query.patientId as string || authReq.user?.sub;
-
-    // Try trial_matches table (managed by trial-service) then fall back
-    try {
-      const rows = await queryRows(
-        `SELECT tm.nct_id, tm.composite_score, tm.scores, tm.status AS match_status,
-                ct.id, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions,
-                ct.phase, ct.status, ct.sponsor, ct.eligibility, ct.locations, ct.metadata
-         FROM trial_matches tm
-         JOIN clinical_trials ct ON tm.nct_id = ct.nct_id
-         WHERE tm.patient_id = $1
-         ORDER BY tm.composite_score DESC`,
-        [patientId],
-      );
-      // Transform flat rows into nested TrialMatch structure expected by frontend
-      const matches = rows.map((r: Record<string, any>) => ({
-        trial: {
-          id: r.id ?? r.nct_id,
-          nct_id: r.nct_id,
-          nctId: r.nct_id,
-          title: r.title,
-          summary: r.brief_summary,
-          plainSummary: r.plain_summary,
-          phase: r.phase,
-          status: r.status,
-          conditions: r.conditions,
-          sponsor: r.sponsor,
-          eligibility: r.eligibility,
-          locations: r.locations,
-        },
-        matchScore: parseFloat(r.composite_score) || 0,
-        eligible: true,
-        matchReasons: r.scores ? Object.keys(r.scores) : [],
-      }));
-      res.json({ success: true, data: matches });
-    } catch {
-      // trial_matches table might not exist yet
-      res.json({ success: true, data: [] });
-    }
-  }),
-);
-
-// GET /trials/matches/patient/:patientId
-trialExtRouter.get(
-  '/matches/patient/:patientId',
-  validate(uuidParam('patientId')),
-  asyncHandler(async (req: Request, res: Response) => {
-    try {
-      const rows = await queryRows(
-        `SELECT tm.nct_id, tm.composite_score, tm.scores, tm.status AS match_status,
-                ct.id, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions,
-                ct.phase, ct.status, ct.sponsor, ct.eligibility, ct.locations, ct.metadata
-         FROM trial_matches tm
-         JOIN clinical_trials ct ON tm.nct_id = ct.nct_id
-         WHERE tm.patient_id = $1
-         ORDER BY tm.composite_score DESC`,
-        [req.params.patientId],
-      );
-      const matches = rows.map((r: Record<string, any>) => ({
-        trial: {
-          id: r.id ?? r.nct_id,
-          nct_id: r.nct_id,
-          nctId: r.nct_id,
-          title: r.title,
-          summary: r.brief_summary,
-          plainSummary: r.plain_summary,
-          phase: r.phase,
-          status: r.status,
-          conditions: r.conditions,
-          sponsor: r.sponsor,
-          eligibility: r.eligibility,
-          locations: r.locations,
-        },
-        matchScore: parseFloat(r.composite_score) || 0,
-        eligible: true,
-        matchReasons: r.scores ? Object.keys(r.scores) : [],
-      }));
-      res.json({ success: true, data: matches });
-    } catch {
-      res.json({ success: true, data: [] });
-    }
-  }),
-);
+// NOTE: /matches and /matches/patient/:patientId routes moved to trialsRouter
+// in routes/index.ts to ensure they are defined before the /:id catch-all.
 
 // ─── Patient Health ──────────────────────────────────────────────────────
 

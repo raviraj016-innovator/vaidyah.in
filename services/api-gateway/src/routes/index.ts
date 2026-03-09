@@ -429,6 +429,92 @@ trialsRouter.get(
   }),
 );
 
+// GET /trials/matches — must be before /:id catch-all
+trialsRouter.get(
+  '/matches',
+  asyncHandler(async (req: Request, res: Response) => {
+    const authReq = req as AuthenticatedRequest;
+    const patientId = (req.query.patientId as string) || authReq.user?.sub;
+
+    try {
+      const rows = await queryRows(
+        `SELECT tm.nct_id, tm.composite_score, tm.scores, tm.status AS match_status,
+                ct.id, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions,
+                ct.phase, ct.status, ct.sponsor, ct.eligibility, ct.locations, ct.metadata
+         FROM trial_matches tm
+         JOIN clinical_trials ct ON tm.nct_id = ct.nct_id
+         WHERE tm.patient_id = $1
+         ORDER BY tm.composite_score DESC`,
+        [patientId],
+      );
+      const matches = rows.map((r: Record<string, any>) => ({
+        trial: {
+          id: r.id ?? r.nct_id,
+          nct_id: r.nct_id,
+          nctId: r.nct_id,
+          title: r.title,
+          summary: r.brief_summary,
+          plainSummary: r.plain_summary,
+          phase: r.phase,
+          status: r.status,
+          conditions: r.conditions,
+          sponsor: r.sponsor,
+          eligibility: r.eligibility,
+          locations: r.locations,
+        },
+        matchScore: parseFloat(r.composite_score) || 0,
+        eligible: true,
+        matchReasons: r.scores ? Object.keys(r.scores) : [],
+      }));
+      res.json({ success: true, data: matches });
+    } catch {
+      res.json({ success: true, data: [] });
+    }
+  }),
+);
+
+// GET /trials/matches/patient/:patientId — must be before /:id catch-all
+trialsRouter.get(
+  '/matches/patient/:patientId',
+  validate(uuidParam('patientId')),
+  asyncHandler(async (req: Request, res: Response) => {
+    try {
+      const rows = await queryRows(
+        `SELECT tm.nct_id, tm.composite_score, tm.scores, tm.status AS match_status,
+                ct.id, ct.title, ct.brief_summary, ct.plain_summary, ct.conditions,
+                ct.phase, ct.status, ct.sponsor, ct.eligibility, ct.locations, ct.metadata
+         FROM trial_matches tm
+         JOIN clinical_trials ct ON tm.nct_id = ct.nct_id
+         WHERE tm.patient_id = $1
+         ORDER BY tm.composite_score DESC`,
+        [req.params.patientId],
+      );
+      const matches = rows.map((r: Record<string, any>) => ({
+        trial: {
+          id: r.id ?? r.nct_id,
+          nct_id: r.nct_id,
+          nctId: r.nct_id,
+          title: r.title,
+          summary: r.brief_summary,
+          plainSummary: r.plain_summary,
+          phase: r.phase,
+          status: r.status,
+          conditions: r.conditions,
+          sponsor: r.sponsor,
+          eligibility: r.eligibility,
+          locations: r.locations,
+        },
+        matchScore: parseFloat(r.composite_score) || 0,
+        eligible: true,
+        matchReasons: r.scores ? Object.keys(r.scores) : [],
+      }));
+      res.json({ success: true, data: matches });
+    } catch {
+      res.json({ success: true, data: [] });
+    }
+  }),
+);
+
 trialsRouter.get(
   '/:id',
   validate(uuidOrNctParam('id')),
