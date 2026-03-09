@@ -17,8 +17,6 @@ export function useAuth() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
   const language = useAuthStore((s) => s.language);
-  const mfaRequired = useAuthStore((s) => s.mfaRequired);
-  const otpSent = useAuthStore((s) => s.otpSent);
 
   const loginAdmin = async (email: string, password: string) => {
     const store = useAuthStore.getState();
@@ -62,19 +60,14 @@ export function useAuth() {
         centerId,
         role: 'nurse',
       });
-      if (data.mfa_required) {
-        useAuthStore.getState().setMfaRequired(true, data.mfa_session_id);
-        return { mfaRequired: true };
-      }
       useAuthStore.getState().loginNurse(data.user as NurseUser, data.access_token, data.refresh_token);
-      
+
       // Check if profile is complete
       if (data.user.profileComplete === false) {
         router.push('/nurse/onboarding');
       } else {
         router.push('/nurse/dashboard');
       }
-      return { mfaRequired: false };
     } catch (err: any) {
       const status = err.response?.status;
       const message =
@@ -88,82 +81,18 @@ export function useAuth() {
     }
   };
 
-  const verifyMfa = async (otp: string) => {
+  const loginPatient = async (phone: string, password: string) => {
     const store = useAuthStore.getState();
     store.setLoading(true);
     store.setError(null);
     try {
-      const mfaSessionId = useAuthStore.getState().mfaSessionId;
-      if (!mfaSessionId) {
-        useAuthStore.getState().setError('MFA session expired. Please login again.');
-        useAuthStore.getState().setLoading(false);
-        return;
-      }
-      const { data } = await authApi.post(endpoints.auth.mfaVerify, {
-        session_id: mfaSessionId,
-        otp,
-      });
-      useAuthStore.getState().loginNurse(data.user as NurseUser, data.access_token, data.refresh_token);
-      
-      // Check if profile is complete
-      if (data.user.profileComplete === false) {
-        router.push('/nurse/onboarding');
-      } else {
-        router.push('/nurse/dashboard');
-      }
-    } catch (err: any) {
-      const status = err.response?.status;
-      const message =
-        status === 401 ? 'Invalid or expired OTP. Please try again.' :
-        status === 429 ? 'Too many attempts. Please try again later.' :
-        'Verification failed. Please try again.';
-      useAuthStore.getState().setError(message);
-      throw err;
-    } finally {
-      useAuthStore.getState().setLoading(false);
-    }
-  };
-
-  const sendOtp = async (phone: string) => {
-    const store = useAuthStore.getState();
-    store.setLoading(true);
-    store.setError(null);
-    try {
-      const { data } = await authApi.post(endpoints.auth.otpSend, {
+      const { data } = await authApi.post(endpoints.auth.login, {
         phone,
+        password,
         role: 'patient',
       });
-      useAuthStore.getState().setOtpSent(true, data.session_id);
-    } catch (err: any) {
-      const status = err.response?.status;
-      const message =
-        status === 429 ? 'Too many attempts. Please try again later.' :
-        'Failed to send OTP. Please try again.';
-      useAuthStore.getState().setError(message);
-      throw err;
-    } finally {
-      useAuthStore.getState().setLoading(false);
-    }
-  };
-
-  const verifyOtp = async (otp: string) => {
-    const store = useAuthStore.getState();
-    store.setLoading(true);
-    store.setError(null);
-    try {
-      const otpSessionId = useAuthStore.getState().otpSessionId;
-      if (!otpSessionId) {
-        useAuthStore.getState().setError('OTP session expired. Please request a new OTP.');
-        useAuthStore.getState().setLoading(false);
-        return;
-      }
-      const { data } = await authApi.post(endpoints.auth.otpVerify, {
-        session_id: otpSessionId,
-        otp,
-      });
       useAuthStore.getState().loginPatient(data.user as PatientUser, data.access_token, data.refresh_token);
-      
-      // Check if profile is complete
+
       if (data.user.profileComplete === false) {
         router.push('/patient/onboarding');
       } else {
@@ -172,9 +101,9 @@ export function useAuth() {
     } catch (err: any) {
       const status = err.response?.status;
       const message =
-        status === 401 ? 'Invalid or expired OTP. Please try again.' :
+        status === 401 ? 'Invalid credentials. Please check your phone number and password.' :
         status === 429 ? 'Too many attempts. Please try again later.' :
-        'Verification failed. Please try again.';
+        'Login failed. Please try again.';
       useAuthStore.getState().setError(message);
       throw err;
     } finally {
@@ -231,13 +160,9 @@ export function useAuth() {
     isLoading,
     error,
     language,
-    mfaRequired,
-    otpSent,
     loginAdmin,
     loginNurse,
-    verifyMfa,
-    sendOtp,
-    verifyOtp,
+    loginPatient,
     guestLogin,
     logout,
     hasPermission,

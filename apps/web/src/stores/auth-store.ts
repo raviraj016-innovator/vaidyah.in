@@ -168,14 +168,6 @@ interface AuthState {
 
   isGuest: boolean;
 
-  // MFA state (nurse)
-  mfaRequired: boolean;
-  mfaSessionId: string | null;
-
-  // OTP state (patient)
-  otpSessionId: string | null;
-  otpSent: boolean;
-
   // Actions
   loginAdmin: (user: AdminUser, token: string, refreshToken: string) => void;
   loginNurse: (user: NurseUser, token: string, refreshToken: string) => void;
@@ -185,8 +177,6 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setLanguage: (lang: 'en' | 'hi') => void;
-  setMfaRequired: (required: boolean, sessionId?: string) => void;
-  setOtpSent: (sent: boolean, sessionId?: string) => void;
   hasPermission: (permission: Permission) => boolean;
   hasAnyPermission: (permissions: Permission[]) => boolean;
   hasRole: (role: string) => boolean;
@@ -209,11 +199,6 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       error: null,
       language: 'en',
-      mfaRequired: false,
-      mfaSessionId: null,
-      otpSessionId: null,
-      otpSent: false,
-
       loginAdmin: (user, token, refreshToken) => {
         set({
           portalType: 'admin',
@@ -224,10 +209,6 @@ export const useAuthStore = create<AuthState>()(
           isGuest: false,
           isLoading: false,
           error: null,
-          mfaRequired: false,
-          mfaSessionId: null,
-          otpSessionId: null,
-          otpSent: false,
         });
       },
 
@@ -241,10 +222,6 @@ export const useAuthStore = create<AuthState>()(
           isGuest: false,
           isLoading: false,
           error: null,
-          mfaRequired: false,
-          mfaSessionId: null,
-          otpSessionId: null,
-          otpSent: false,
         });
       },
 
@@ -258,10 +235,6 @@ export const useAuthStore = create<AuthState>()(
           isGuest: false,
           isLoading: false,
           error: null,
-          mfaRequired: false,
-          mfaSessionId: null,
-          otpSessionId: null,
-          otpSent: false,
         });
       },
 
@@ -280,10 +253,6 @@ export const useAuthStore = create<AuthState>()(
           isGuest: true,
           isLoading: false,
           error: null,
-          mfaRequired: false,
-          mfaSessionId: null,
-          otpSessionId: null,
-          otpSent: false,
         });
       },
 
@@ -297,22 +266,12 @@ export const useAuthStore = create<AuthState>()(
           isGuest: false,
           isLoading: false,
           error: null,
-          mfaRequired: false,
-          mfaSessionId: null,
-          otpSessionId: null,
-          otpSent: false,
         });
       },
 
       setLoading: (isLoading) => set({ isLoading }),
       setError: (error) => set({ error }),
       setLanguage: (language) => set({ language }),
-
-      setMfaRequired: (mfaRequired, mfaSessionId) =>
-        set({ mfaRequired, mfaSessionId: mfaSessionId ?? null }),
-
-      setOtpSent: (otpSent, otpSessionId) =>
-        set({ otpSent, otpSessionId: otpSessionId ?? null }),
 
       hasPermission: (permission) => {
         const { user, portalType } = get();

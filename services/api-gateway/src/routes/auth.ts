@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { asyncHandler, AppError } from '../middleware/errorHandler';
 import { createStrictRateLimiter } from '../middleware/rateLimiter';
 import { queryOne, queryRows, query as dbQuery } from '../services/db';
-import { sendSms } from '@vaidyah/aws-services';
 
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required');
 const JWT_SECRET: string = process.env.JWT_SECRET;
@@ -24,9 +23,6 @@ function signTokens(payload: Record<string, unknown>) {
   const refresh_token = jwt.sign({ sub: payload.sub, type: 'refresh' }, JWT_SECRET, { expiresIn: REFRESH_EXPIRES, issuer: 'vaidyah-auth', audience: 'vaidyah' });
   return { access_token, refresh_token };
 }
-
-// In-memory OTP store for dev (production would use SMS gateway + Redis)
-const otpStore = new Map<string, { phone: string; otp: string; expiresAt: number }>();
 
 export const authRouter: Router = Router();
 
@@ -81,7 +77,63 @@ authRouter.post(
         );
       }
     } else if (role === 'patient') {
-      throw AppError.badRequest('Use OTP flow for patient login');
+      const { phone } = req.body;
+      if (!phone) throw AppError.badRequest('phone is required for patient login');
+
+      let patient = await queryOne(
+        `SELECT id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history
+         FROM patients WHERE phone = $1`,
+        [phone],
+      );
+      // Dev fallback: return first patient
+      if (!patient && process.env.NODE_ENV !== 'production') {
+        patient = await queryOne(
+          `SELECT id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history
+           FROM patients LIMIT 1`,
+          [],
+        );
+      }
+      // Auto-create patient if none exists
+      if (!patient) {
+        const patientId = uuidv4();
+        patient = await queryOne(
+          `INSERT INTO patients (id, name, phone) VALUES ($1, $2, $3)
+           RETURNING id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history`,
+          [patientId, 'Patient', phone],
+        );
+      }
+      if (!patient) throw new AppError('Failed to create or retrieve patient record', 500, 'PATIENT_CREATE_FAILED');
+
+      const tokenPayload = {
+        sub: patient.id,
+        email: '',
+        name: patient.name,
+        'custom:role': 'patient',
+        role: 'patient',
+        roles: ['patient'],
+      };
+      const tokens = signTokens(tokenPayload);
+
+      const profileComplete = !!(
+        patient.name && patient.name !== 'Patient' &&
+        patient.date_of_birth && patient.gender && patient.address
+      );
+
+      const user: Record<string, unknown> = {
+        id: patient.id,
+        name: patient.name,
+        phone: patient.phone,
+        abdmId: patient.abdm_id,
+        age: patient.age,
+        gender: patient.gender,
+        conditions: patient.medical_history?.conditions || [],
+        medications: patient.medical_history?.medications || [],
+        allergies: patient.medical_history?.allergies || [],
+        familyHistory: patient.medical_history?.family_history || [],
+        profileComplete,
+      };
+
+      return res.json({ success: true, user, ...tokens });
     } else {
       throw AppError.badRequest('Invalid role');
     }
@@ -317,159 +369,6 @@ authRouter.patch(
       if (err instanceof AppError) throw err;
       throw AppError.unauthorized('Invalid token');
     }
-  }),
-);
-
-// Strict rate limiter for OTP endpoints: 3 requests/minute per IP
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- monorepo @types/express v4/v5 mismatch
-const otpRateLimiter = createStrictRateLimiter(3, 'otp') as any;
-
-// POST /auth/otp/send
-authRouter.post(
-  '/otp/send',
-  otpRateLimiter,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { phone } = req.body;
-    if (!phone) throw AppError.badRequest('phone is required');
-
-    const sessionId = uuidv4();
-    const otp = String(Math.floor(100000 + Math.random() * 900000));
-    otpStore.set(sessionId, { phone, otp, expiresAt: Date.now() + 5 * 60 * 1000 });
-
-    // Send OTP to user via SMS (falls back to console.log in dev)
-    await sendSms({
-      phoneNumber: phone,
-      message: `Your Vaidyah verification code is ${otp}. Valid for 5 minutes. Do not share this code.`,
-      senderId: 'VAIDYH',
-    });
-
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Auth] OTP sent to phone ending in ${phone.slice(-4)}`);
-    }
-
-    res.json({ success: true, session_id: sessionId, message: 'OTP sent' });
-  }),
-);
-
-// POST /auth/otp/verify
-authRouter.post(
-  '/otp/verify',
-  otpRateLimiter,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { session_id, otp } = req.body;
-    if (!session_id || !otp) throw AppError.badRequest('session_id and otp are required');
-
-    const stored = otpStore.get(session_id);
-    if (!stored) throw AppError.unauthorized('Invalid or expired OTP session');
-    if (Date.now() > stored.expiresAt) {
-      otpStore.delete(session_id);
-      throw AppError.unauthorized('OTP expired');
-    }
-    // In production, OTP must match exactly; in dev, accept any 6-digit code
-    const isDev = process.env.NODE_ENV !== 'production';
-    if (otp !== stored.otp && !(isDev && otp.length === 6)) {
-      throw AppError.unauthorized('Invalid OTP');
-    }
-    otpStore.delete(session_id);
-
-    // Find or create patient
-    let patient = await queryOne(
-      `SELECT id, name, phone, abdm_id, age, gender, date_of_birth, medical_history
-       FROM patients WHERE phone = $1`,
-      [stored.phone],
-    );
-    if (!patient) {
-      const patientId = uuidv4();
-      patient = await queryOne(
-        `INSERT INTO patients (id, name, phone) VALUES ($1, $2, $3)
-         RETURNING id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history`,
-        [patientId, 'Patient', stored.phone],
-      );
-    }
-
-    if (!patient) {
-      throw new AppError('Failed to create or retrieve patient record', 500, 'PATIENT_CREATE_FAILED');
-    }
-
-    const tokenPayload = {
-      sub: patient.id,
-      email: '',
-      name: patient.name,
-      'custom:role': 'patient',
-      role: 'patient',
-      roles: ['patient'],
-    };
-    const tokens = signTokens(tokenPayload);
-
-    const profileComplete = !!(
-      patient.name && patient.name !== 'Patient' &&
-      patient.date_of_birth && patient.gender && patient.address
-    );
-
-    const user = {
-      id: patient.id,
-      name: patient.name,
-      phone: patient.phone,
-      abdmId: patient.abdm_id,
-      age: patient.age,
-      gender: patient.gender,
-      conditions: patient.medical_history?.conditions || [],
-      medications: patient.medical_history?.medications || [],
-      allergies: patient.medical_history?.allergies || [],
-      familyHistory: patient.medical_history?.family_history || [],
-      profileComplete,
-    };
-
-    res.json({ success: true, user, ...tokens });
-  }),
-);
-
-// POST /auth/mfa/verify
-authRouter.post(
-  '/mfa/verify',
-  asyncHandler(async (req: Request, res: Response) => {
-    const { session_id, otp } = req.body;
-    if (!session_id || !otp) throw AppError.badRequest('session_id and otp are required');
-
-    if (process.env.NODE_ENV === 'production') {
-      throw new AppError('MFA verification not yet implemented for production', 501, 'NOT_IMPLEMENTED');
-    }
-
-    // Dev mode: accept any OTP and return the first nurse
-    const dbUser = await queryOne(
-      `SELECT u.id, u.name, u.email, u.phone, u.role, u.center_id, u.qualifications,
-              h.name AS center_name
-       FROM users u LEFT JOIN health_centers h ON u.center_id = h.id
-       WHERE u.role = 'nurse' AND u.active = true LIMIT 1`,
-      [],
-    );
-    if (!dbUser) throw AppError.unauthorized('No nurse user found');
-
-    const tokenPayload = {
-      sub: dbUser.id,
-      email: dbUser.email || '',
-      name: dbUser.name,
-      'custom:role': 'nurse',
-      role: 'nurse',
-      roles: ['nurse'],
-      'custom:facilityId': dbUser.center_id || '',
-    };
-    const tokens = signTokens(tokenPayload);
-
-    const profileComplete = !!(dbUser.name && dbUser.email && dbUser.center_id);
-    const user = {
-      id: dbUser.id,
-      name: dbUser.name,
-      registrationNumber: `NRS-${dbUser.id.slice(0, 8).toUpperCase()}`,
-      role: 'staff_nurse',
-      centerId: dbUser.center_id,
-      centerName: dbUser.center_name || 'Health Center',
-      phone: dbUser.phone,
-      qualifications: dbUser.qualifications || [],
-      profileComplete,
-    };
-
-    res.json({ success: true, user, ...tokens });
   }),
 );
 
