@@ -2,7 +2,6 @@ import http from 'http';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import compression from 'compression';
 import morgan from 'morgan';
 import { v4 as uuidv4 } from 'uuid';
 import config from './config';
@@ -59,8 +58,6 @@ app.use(cors({
   exposedHeaders: ['X-Request-ID', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset'],
   maxAge: 86400,
 }));
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- monorepo @types/express v4/v5 mismatch
-app.use(compression() as any);
 app.use(express.json({ limit: config.server.bodyLimitBytes }));
 app.use(express.urlencoded({ extended: false, limit: config.server.bodyLimitBytes }));
 
