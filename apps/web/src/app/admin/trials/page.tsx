@@ -150,7 +150,8 @@ export default function AdminTrialsPage() {
     fetchTrials(page);
   }, [fetchTrials, page]);
 
-  // CSV upload handler
+  // CSV upload handler — uploads directly to EC2 backend to bypass
+  // Vercel's 4.5 MB body size limit on serverless functions.
   const handleUpload = useCallback(async (file: File) => {
     setImporting(true);
     setImportStatus(null);
@@ -159,9 +160,21 @@ export default function AdminTrialsPage() {
     formData.append('file', file);
 
     try {
-      await api.post(endpoints.trials.csvUpload, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const gatewayUrl = process.env.NEXT_PUBLIC_API_GATEWAY_URL;
+      if (gatewayUrl) {
+        // Direct upload to EC2 backend (bypasses Vercel proxy size limit)
+        const token = (await import('@/stores/auth-store')).useAuthStore.getState().token;
+        await fetch(`${gatewayUrl}/api/v1/trials/csv/upload`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }).then((r) => { if (!r.ok) throw new Error(`Upload failed: ${r.status}`); });
+      } else {
+        // Fallback: through Next.js proxy (works for small files in dev)
+        await api.post(endpoints.trials.csvUpload, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
       message.success('CSV upload started. Processing in background...');
 
       // Clear any existing poll before starting a new one

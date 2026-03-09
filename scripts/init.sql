@@ -59,6 +59,7 @@ CREATE TABLE patients (
     gender          VARCHAR(10),
     date_of_birth   DATE,
     phone           VARCHAR(15),
+    password_hash   TEXT,
     language_pref   VARCHAR(10) DEFAULT 'hi',
     address         JSONB,
     location        JSONB,

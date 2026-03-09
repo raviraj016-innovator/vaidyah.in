@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Form, Input, Button, Card, Typography, Steps, Divider, App } from 'antd';
-import { UserOutlined, PhoneOutlined, SafetyOutlined } from '@ant-design/icons';
+import Link from 'next/link';
+import { Form, Input, Button, Card, Typography, Divider, App } from 'antd';
+import { UserOutlined, PhoneOutlined, LockOutlined } from '@ant-design/icons';
 import { authApi } from '@/lib/api/client';
+import { endpoints } from '@/lib/api/endpoints';
 import { useAuthStore } from '@/stores/auth-store';
 
 const { Title, Text } = Typography;
@@ -14,47 +16,33 @@ export default function PatientSignupPage() {
   const { message } = App.useApp();
   const loginPatient = useAuthStore((s) => s.loginPatient);
   const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [sessionId, setSessionId] = useState<string>('');
-  const [phone, setPhone] = useState<string>('');
   const [form] = Form.useForm();
 
-  const handleSendOTP = async (values: { phone: string }) => {
+  const handleSignup = async (values: { name: string; phone: string; password: string }) => {
     setLoading(true);
     try {
-      const { data } = await authApi.post('/otp/send', { phone: values.phone });
-      setSessionId(data.session_id);
-      setPhone(values.phone);
-      setCurrentStep(1);
-      message.success('OTP sent successfully!');
-    } catch (error: any) {
-      message.error(error.response?.data?.error?.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOTP = async (values: { otp: string }) => {
-    setLoading(true);
-    try {
-      const { data } = await authApi.post('/otp/verify', {
-        session_id: sessionId,
-        otp: values.otp,
+      const { data } = await authApi.post(endpoints.auth.patientSignup, {
+        name: values.name,
+        phone: values.phone,
+        password: values.password,
       });
 
-      // Use the auth store to save tokens and user
       loginPatient(data.user, data.access_token, data.refresh_token);
+      message.success('Account created successfully!');
 
-      message.success('Signup successful!');
-      
-      // Check if profile is complete
       if (data.user.profileComplete) {
         router.push('/patient/home');
       } else {
         router.push('/patient/onboarding');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.error?.message || 'Invalid OTP');
+      const status = error.response?.status;
+      const serverMsg = error.response?.data?.error?.message;
+      const msg =
+        status === 409 ? (serverMsg || 'Phone number already registered. Please login instead.') :
+        status === 429 ? 'Too many attempts. Please try again later.' :
+        serverMsg || 'Signup failed. Please try again.';
+      message.error(msg);
     } finally {
       setLoading(false);
     }
@@ -83,95 +71,95 @@ export default function PatientSignupPage() {
         </Text>
       </div>
 
-      <Steps
-        current={currentStep}
-        style={{ marginBottom: 32 }}
-        size="small"
-        items={[
-          { title: 'Phone', icon: <PhoneOutlined /> },
-          { title: 'Verify', icon: <SafetyOutlined /> },
-        ]}
-      />
+      <Form form={form} onFinish={handleSignup} layout="vertical" size="large">
+        <Form.Item
+          name="name"
+          label="Full Name"
+          rules={[
+            { required: true, message: 'Please enter your name' },
+            { min: 2, message: 'Name must be at least 2 characters' },
+          ]}
+        >
+          <Input
+            prefix={<UserOutlined style={{ color: '#9ca3af' }} />}
+            placeholder="Enter your full name"
+          />
+        </Form.Item>
 
-        {currentStep === 0 && (
-        <Form form={form} onFinish={handleSendOTP} layout="vertical" size="large">
-          <Form.Item
-            name="phone"
-            label="Phone Number"
-            rules={[
-              { required: true, message: 'Please enter your phone number' },
-              { pattern: /^[6-9]\d{9}$/, message: 'Please enter a valid 10-digit phone number' },
-            ]}
-          >
-            <Input
-              prefix={<PhoneOutlined style={{ color: '#9ca3af' }} />}
-              placeholder="9876543210"
-              size="large"
-              maxLength={10}
-            />
-          </Form.Item>
+        <Form.Item
+          name="phone"
+          label="Phone Number"
+          rules={[
+            { required: true, message: 'Please enter your phone number' },
+            { pattern: /^[6-9]\d{9}$/, message: 'Please enter a valid 10-digit phone number' },
+          ]}
+        >
+          <Input
+            prefix={<PhoneOutlined style={{ color: '#9ca3af' }} />}
+            placeholder="9876543210"
+            maxLength={10}
+          />
+        </Form.Item>
 
-          <Form.Item style={{ marginBottom: 16 }}>
-            <Button type="primary" htmlType="submit" loading={loading} block style={{ height: 46, fontWeight: 600 }}>
-              Send OTP
-            </Button>
-          </Form.Item>
+        <Form.Item
+          name="password"
+          label="Password"
+          rules={[
+            { required: true, message: 'Please enter a password' },
+            { min: 6, message: 'Password must be at least 6 characters' },
+          ]}
+        >
+          <Input.Password
+            prefix={<LockOutlined style={{ color: '#9ca3af' }} />}
+            placeholder="Create a password"
+          />
+        </Form.Item>
 
-          <div style={{ textAlign: 'center', marginTop: 16 }}>
-            <Text style={{ color: '#94a3b8', fontSize: 13 }}>
-              Already have an account?{' '}
-              <a href="/patient/login" style={{ color: '#7c3aed', fontWeight: 500 }}>
-                Login here
-              </a>
-            </Text>
-          </div>
+        <Form.Item
+          name="confirmPassword"
+          label="Confirm Password"
+          dependencies={['password']}
+          rules={[
+            { required: true, message: 'Please confirm your password' },
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                if (!value || getFieldValue('password') === value) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('Passwords do not match'));
+              },
+            }),
+          ]}
+        >
+          <Input.Password
+            prefix={<LockOutlined style={{ color: '#9ca3af' }} />}
+            placeholder="Confirm your password"
+          />
+        </Form.Item>
 
-          <Divider style={{ margin: '16px 0' }} />
+        <Form.Item style={{ marginBottom: 16 }}>
+          <Button type="primary" htmlType="submit" loading={loading} block style={{ height: 46, fontWeight: 600 }}>
+            Create Account
+          </Button>
+        </Form.Item>
 
-          <div style={{ textAlign: 'center' }}>
-            <a href="/" style={{ color: '#7c3aed', fontSize: 13 }}>
-              Back to portal selection
-            </a>
-          </div>
-        </Form>
-      )}
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+            Already have an account?{' '}
+            <Link href="/patient/login" style={{ color: '#7c3aed', fontWeight: 500 }}>
+              Login here
+            </Link>
+          </Text>
+        </div>
 
-        {currentStep === 1 && (
-        <Form form={form} onFinish={handleVerifyOTP} layout="vertical" size="large">
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <SafetyOutlined style={{ fontSize: 40, color: '#7c3aed', marginBottom: 12 }} />
-            <Text style={{ display: 'block', color: '#64748b' }}>
-              OTP sent to <strong style={{ color: '#0f172a' }}>{phone}</strong>
-            </Text>
-            <Button type="link" onClick={() => setCurrentStep(0)} style={{ padding: 0, marginTop: 4, color: '#7c3aed' }}>
-              Change number
-            </Button>
-          </div>
+        <Divider style={{ margin: '16px 0' }} />
 
-          <Form.Item
-            name="otp"
-            rules={[
-              { required: true, message: 'Please enter the OTP' },
-              { len: 6, message: 'OTP must be 6 digits' },
-            ]}
-            style={{ display: 'flex', justifyContent: 'center' }}
-          >
-            <Input.OTP length={6} />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 12 }}>
-            <Button type="primary" htmlType="submit" loading={loading} block style={{ height: 46, fontWeight: 600 }}>
-              Verify & Signup
-            </Button>
-          </Form.Item>
-
-          <div style={{ textAlign: 'center', marginTop: 16 }}>
-            <Button type="link" onClick={() => { form.setFieldValue('otp', ''); handleSendOTP({ phone }); }} loading={loading} style={{ color: '#7c3aed' }}>
-              Resend OTP
-            </Button>
-          </div>
-        </Form>
-      )}
+        <div style={{ textAlign: 'center' }}>
+          <Link href="/" style={{ color: '#7c3aed', fontSize: 13 }}>
+            Back to portal selection
+          </Link>
+        </div>
+      </Form>
     </Card>
   );
 }

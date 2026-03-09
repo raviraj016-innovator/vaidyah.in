@@ -155,6 +155,8 @@ export default function TelemedicinePage() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const transcriptIdCounter = useRef(0);
 
   // --------------------------------------------------------------------------
   // Fetch meeting token (POST /telemedicine/meetings)
@@ -363,6 +365,104 @@ export default function TelemedicinePage() {
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [transcript]);
+
+  // --------------------------------------------------------------------------
+  // Live transcription via browser SpeechRecognition
+  // --------------------------------------------------------------------------
+  const startLiveTranscription = useCallback(() => {
+    const SpeechRecognitionCtor =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+        : null;
+    if (!SpeechRecognitionCtor) return;
+
+    // Stop any existing instance
+    try { recognitionRef.current?.abort(); } catch { /* noop */ }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    recognitionRef.current = recognition;
+
+    let interimId: string | null = null;
+
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0].transcript.trim();
+        if (!text) continue;
+
+        if (result.isFinal) {
+          // Replace interim with final
+          const finalId = `ts-${++transcriptIdCounter.current}`;
+          setTranscript((prev) => {
+            const filtered = interimId ? prev.filter((s) => s.id !== interimId) : prev;
+            return [
+              ...filtered,
+              {
+                id: finalId,
+                speaker: (user as any)?.name || 'Nurse',
+                text,
+                timestamp: new Date().toISOString(),
+                isFinal: true,
+              },
+            ];
+          });
+          interimId = null;
+        } else {
+          // Show interim result
+          if (!interimId) {
+            interimId = `ts-interim-${++transcriptIdCounter.current}`;
+          }
+          const iid = interimId;
+          setTranscript((prev) => {
+            const filtered = prev.filter((s) => s.id !== iid);
+            return [
+              ...filtered,
+              {
+                id: iid,
+                speaker: (user as any)?.name || 'Nurse',
+                text,
+                timestamp: new Date().toISOString(),
+                isFinal: false,
+              },
+            ];
+          });
+        }
+      }
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if still connected and mic is on
+      if (roomRef.current && connState === 'connected') {
+        try { recognitionRef.current?.start(); } catch { /* noop */ }
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      console.error('[Telemedicine] Speech recognition error:', event.error);
+    };
+
+    recognition.start();
+  }, [language, connState, user]);
+
+  const stopLiveTranscription = useCallback(() => {
+    try { recognitionRef.current?.abort(); } catch { /* noop */ }
+    recognitionRef.current = null;
+  }, []);
+
+  // Start/stop transcription based on connection state and audio
+  useEffect(() => {
+    if (connState === 'connected' && isAudioOn) {
+      startLiveTranscription();
+    } else {
+      stopLiveTranscription();
+    }
+    return () => stopLiveTranscription();
+  }, [connState, isAudioOn, startLiveTranscription, stopLiveTranscription]);
 
   // --------------------------------------------------------------------------
   // Media controls

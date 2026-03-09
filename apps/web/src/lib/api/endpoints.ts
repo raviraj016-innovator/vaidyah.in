@@ -7,6 +7,7 @@ export const endpoints = {
     me: '/me',
     centers: '/centers',
     abdmLookup: '/abdm/lookup',
+    patientSignup: '/patient/signup',
   },
 
   // Dashboard (Admin)

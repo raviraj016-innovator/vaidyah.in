@@ -146,6 +146,15 @@ export default function NurseLoginPage() {
           </Button>
         </Form.Item>
 
+        <div style={{ textAlign: 'center', marginBottom: 12 }}>
+          <Text style={{ color: '#64748b', fontSize: 13 }}>
+            {language === 'hi' ? 'खाता नहीं है?' : "Don't have an account?"}{' '}
+            <Link href="/nurse/signup" style={{ color: '#0d9488', fontWeight: 500 }}>
+              {language === 'hi' ? 'पंजीकरण करें' : 'Sign Up'}
+            </Link>
+          </Text>
+        </div>
+
         <div style={{ textAlign: 'center' }}>
           <Link href="/" style={{ color: '#7c3aed', fontSize: 13 }}>
             {t('common.backToPortal') !== 'common.backToPortal' ? t('common.backToPortal') : 'Back to portal selection'}

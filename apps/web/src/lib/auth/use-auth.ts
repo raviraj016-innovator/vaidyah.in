@@ -70,8 +70,10 @@ export function useAuth() {
       }
     } catch (err: any) {
       const status = err.response?.status;
+      const serverMsg = err.response?.data?.error?.message;
       const message =
         status === 401 ? 'Invalid credentials. Please try again.' :
+        status === 403 ? (serverMsg || 'Account not yet approved. Please contact admin.') :
         status === 429 ? 'Too many attempts. Please try again later.' :
         'Login failed. Please try again.';
       useAuthStore.getState().setError(message);

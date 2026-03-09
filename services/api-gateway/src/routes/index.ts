@@ -463,13 +463,6 @@ trialsRouter.post(
       return;
     }
 
-    // Enforce max file size (50 MB)
-    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
-    if (contentLength > 50 * 1024 * 1024) {
-      res.status(413).json({ success: false, error: 'File size exceeds 50 MB limit' });
-      return;
-    }
-
     const http = await import('http');
     const { URL } = await import('url');
     const config = (await import('../config')).default;

@@ -59,12 +59,25 @@ authRouter.post(
     } else if (role === 'nurse') {
       const lookup = identifier || email;
       if (!lookup) throw AppError.badRequest('identifier or email is required');
+
+      // First check if the user exists but is inactive (pending approval)
+      const pendingUser = await queryOne(
+        `SELECT id, active FROM users
+         WHERE (email = $1 OR phone = $1) AND role = 'nurse'`,
+        [lookup],
+      );
+      if (pendingUser && !pendingUser.active) {
+        throw new AppError('Your account is pending admin approval. Please wait for activation.', 403, 'ACCOUNT_PENDING');
+      }
+
+      const { password } = req.body;
       dbUser = await queryOne(
         `SELECT u.id, u.name, u.email, u.phone, u.role, u.center_id, u.qualifications,
                 h.name AS center_name
          FROM users u LEFT JOIN health_centers h ON u.center_id = h.id
-         WHERE (u.email = $1 OR u.phone = $1) AND u.role = 'nurse' AND u.active = true`,
-        [lookup],
+         WHERE (u.email = $1 OR u.phone = $1) AND u.role = 'nurse' AND u.active = true
+           AND (u.password_hash IS NULL OR u.password_hash = crypt($2, u.password_hash))`,
+        [lookup, password || ''],
       );
       // Dev fallback: return first nurse (production requires exact match)
       if (!dbUser && process.env.NODE_ENV !== 'production') {
@@ -77,13 +90,14 @@ authRouter.post(
         );
       }
     } else if (role === 'patient') {
-      const { phone } = req.body;
+      const { phone, password } = req.body;
       if (!phone) throw AppError.badRequest('phone is required for patient login');
+      if (!password) throw AppError.badRequest('password is required for patient login');
 
       let patient = await queryOne(
         `SELECT id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history
-         FROM patients WHERE phone = $1`,
-        [phone],
+         FROM patients WHERE phone = $1 AND password_hash = crypt($2, password_hash)`,
+        [phone, password],
       );
       // Dev fallback: return first patient
       if (!patient && process.env.NODE_ENV !== 'production') {
@@ -93,16 +107,7 @@ authRouter.post(
           [],
         );
       }
-      // Auto-create patient if none exists
-      if (!patient) {
-        const patientId = uuidv4();
-        patient = await queryOne(
-          `INSERT INTO patients (id, name, phone) VALUES ($1, $2, $3)
-           RETURNING id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history`,
-          [patientId, 'Patient', phone],
-        );
-      }
-      if (!patient) throw new AppError('Failed to create or retrieve patient record', 500, 'PATIENT_CREATE_FAILED');
+      if (!patient) throw AppError.unauthorized('Invalid phone number or password');
 
       const tokenPayload = {
         sub: patient.id,
@@ -186,6 +191,110 @@ authRouter.post(
     }
 
     res.json({ success: true, user, ...tokens });
+  }),
+);
+
+// POST /auth/nurse/signup
+const signupRateLimiter = createStrictRateLimiter(5, 'nurse-signup') as any;
+
+authRouter.post(
+  '/nurse/signup',
+  signupRateLimiter,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { name, email, password, centerId } = req.body;
+    if (!name || !email || !password) {
+      throw AppError.badRequest('name, email, and password are required');
+    }
+    if (password.length < 6) {
+      throw AppError.badRequest('Password must be at least 6 characters');
+    }
+
+    // Check if email already exists
+    const existing = await queryOne(
+      `SELECT id FROM users WHERE email = $1`,
+      [email],
+    );
+    if (existing) {
+      throw AppError.conflict('A user with this email already exists');
+    }
+
+    const id = uuidv4();
+    const newUser = await queryOne(
+      `INSERT INTO users (id, name, email, role, center_id, password_hash, active, created_at, updated_at)
+       VALUES ($1, $2, $3, 'nurse'::user_role, $4, crypt($5, gen_salt('bf')), false, NOW(), NOW())
+       RETURNING id, name, email, role, center_id, active, created_at`,
+      [id, name.trim(), email.trim().toLowerCase(), centerId || null, password],
+    );
+
+    res.status(201).json({
+      success: true,
+      data: newUser,
+      message: 'Signup successful. Your account is pending admin approval.',
+    });
+  }),
+);
+
+// POST /auth/patient/signup
+const patientSignupLimiter = createStrictRateLimiter(5, 'patient-signup') as any;
+
+authRouter.post(
+  '/patient/signup',
+  patientSignupLimiter,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { name, phone, password } = req.body;
+    if (!name || !phone || !password) {
+      throw AppError.badRequest('name, phone, and password are required');
+    }
+    if (password.length < 6) {
+      throw AppError.badRequest('Password must be at least 6 characters');
+    }
+    if (!/^[6-9]\d{9}$/.test(phone)) {
+      throw AppError.badRequest('Please enter a valid 10-digit phone number');
+    }
+
+    // Check if phone already exists
+    const existing = await queryOne(
+      `SELECT id FROM patients WHERE phone = $1`,
+      [phone],
+    );
+    if (existing) {
+      throw AppError.conflict('An account with this phone number already exists. Please login instead.');
+    }
+
+    const id = uuidv4();
+    const patient = await queryOne(
+      `INSERT INTO patients (id, name, phone, password_hash, created_at, updated_at)
+       VALUES ($1, $2, $3, crypt($4, gen_salt('bf')), NOW(), NOW())
+       RETURNING id, name, phone, abdm_id, age, gender, date_of_birth, address, medical_history`,
+      [id, name.trim(), phone, password],
+    );
+    if (!patient) throw new AppError('Failed to create patient account', 500, 'PATIENT_CREATE_FAILED');
+
+    const tokenPayload = {
+      sub: patient.id,
+      email: '',
+      name: patient.name,
+      'custom:role': 'patient',
+      role: 'patient',
+      roles: ['patient'],
+    };
+    const tokens = signTokens(tokenPayload);
+
+    const user = {
+      id: patient.id,
+      name: patient.name,
+      phone: patient.phone,
+      abdmId: patient.abdm_id,
+      age: patient.age,
+      gender: patient.gender,
+      conditions: [],
+      medications: [],
+      allergies: [],
+      familyHistory: [],
+      profileComplete: false,
+    };
+
+    res.status(201).json({ success: true, user, ...tokens });
   }),
 );
 
