@@ -133,7 +133,8 @@ authRouter.post(
         profileComplete,
       };
 
-      return res.json({ success: true, user, ...tokens });
+      res.json({ success: true, user, ...tokens });
+      return;
     } else {
       throw AppError.badRequest('Invalid role');
     }
