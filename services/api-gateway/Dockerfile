@@ -3,35 +3,35 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy and build the aws-services dependency first
-COPY packages/aws-services/package.json ./packages/aws-services/
-RUN cd packages/aws-services && npm install
-
+# Build the aws-services local package first
 COPY packages/aws-services/ ./packages/aws-services/
-RUN cd packages/aws-services && npm run build
+RUN cd packages/aws-services && npm install && npm run build
 
-# Install api-gateway dependencies (all, including dev for tsc)
-COPY services/api-gateway/package.json ./services/api-gateway/
+# Install api-gateway dependencies
+# Strip @vaidyah/aws-services from package.json so npm doesn't try the registry
+COPY services/api-gateway/package.json ./services/api-gateway/package.json.orig
+RUN sed '/@vaidyah/d' ./services/api-gateway/package.json.orig > ./services/api-gateway/package.json
+
 WORKDIR /app/services/api-gateway
-RUN npm install --install-links=false && \
-    rm -rf node_modules/@vaidyah/aws-services && \
-    mkdir -p node_modules/@vaidyah/aws-services && \
+RUN npm install
+
+# Inject the locally-built aws-services into node_modules
+RUN mkdir -p node_modules/@vaidyah/aws-services && \
     cp -r /app/packages/aws-services/dist node_modules/@vaidyah/aws-services/dist && \
-    cp /app/packages/aws-services/package.json node_modules/@vaidyah/aws-services/package.json && \
-    cd node_modules/@vaidyah/aws-services && npm install --omit=dev
+    cp -r /app/packages/aws-services/node_modules node_modules/@vaidyah/aws-services/node_modules && \
+    cp /app/packages/aws-services/package.json node_modules/@vaidyah/aws-services/package.json
 
 # Copy source and build
 COPY services/api-gateway/tsconfig.json ./
 COPY services/api-gateway/src/ ./src/
 RUN npm run build
 
-# Prune dev dependencies
+# Prune dev dependencies, then re-inject aws-services (prune removes it)
 RUN npm prune --production && \
-    rm -rf node_modules/@vaidyah/aws-services && \
     mkdir -p node_modules/@vaidyah/aws-services && \
     cp -r /app/packages/aws-services/dist node_modules/@vaidyah/aws-services/dist && \
-    cp /app/packages/aws-services/package.json node_modules/@vaidyah/aws-services/package.json && \
-    cd node_modules/@vaidyah/aws-services && npm install --omit=dev
+    cp -r /app/packages/aws-services/node_modules node_modules/@vaidyah/aws-services/node_modules && \
+    cp /app/packages/aws-services/package.json node_modules/@vaidyah/aws-services/package.json
 
 # ---- Production Stage ----
 FROM node:20-alpine AS production
