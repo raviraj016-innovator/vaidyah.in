@@ -11,6 +11,6 @@ numpy==1.26.4
 scikit-learn==1.4.1.post1
 PyJWT[crypto]==2.8.0
 aioboto3==12.3.0
-cryptography==42.0.5
+cryptography==46.0.6
 tenacity==8.2.3
 prometheus-client==0.20.0
